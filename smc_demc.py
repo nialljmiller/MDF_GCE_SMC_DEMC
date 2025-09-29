@@ -1,0 +1,157 @@
+# smc_demc.py
+import numpy as np
+import pandas as pd
+from dataclasses import dataclass
+from typing import Callable, List, Tuple
+
+@dataclass
+class Bound:
+    lo: float
+    hi: float
+
+def reflect_to_bounds(x: np.ndarray, bounds: List[Bound]) -> np.ndarray:
+    y = x.copy()
+    for j,(lo,hi) in enumerate([(b.lo,b.hi) for b in bounds]):
+        L = hi - lo
+        if L <= 0: continue
+        t = (y[j] - lo) % (2*L)
+        y[j] = lo + (t if t <= L else 2*L - t)
+    return y
+
+def systematic_resample(w: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    N = len(w)
+    positions = (rng.random() + np.arange(N)) / N
+    cumsum = np.cumsum(w)
+    idx = np.searchsorted(cumsum, positions, side='right')
+    return idx
+
+def effective_sample_size(w: np.ndarray) -> float:
+    s = w.sum()
+    return s*s / np.dot(w, w)
+
+def choose_next_beta(loss: np.ndarray, beta_prev: float, target_ess_frac: float=0.6) -> float:
+    """
+    Pick the next beta so that ESS(new) ≈ target_ess_frac * N.
+    Binary search on delta_beta in [0, 2] but clip at 1-beta_prev.
+    """
+    N = len(loss)
+    lo, hi = 1e-6, max(1e-6, 1.0 - beta_prev)
+    target = target_ess_frac * N
+    for _ in range(30):
+        mid = 0.5*(lo+hi)
+        w = np.exp(-(mid)*loss)
+        ess = effective_sample_size(w)
+        if ess < target:
+            hi = mid
+        else:
+            lo = mid
+    return min(1.0, beta_prev + lo)
+
+def de_mh_move(X: np.ndarray,
+               loglike: Callable[[np.ndarray], float],
+               bounds: List[Bound],
+               steps: int = 2,
+               gamma: float = None,
+               jitter: float = 1e-9,
+               rng: np.random.Generator = None) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Differential-Evolution Metropolis on an ensemble X (N,d).
+    Returns (X_new, accepted) with per-particle acceptance True/False.
+    """
+    if rng is None: rng = np.random.default_rng()
+    N, d = X.shape
+    if gamma is None:
+        gamma = 2.38 / np.sqrt(2*d)  # ter Braak default
+
+    accepted = np.zeros(N, dtype=bool)
+    L = np.array([loglike(x) for x in X], dtype=float)
+
+    for _ in range(steps):
+        order = rng.permutation(N)
+        for i in order:
+            # pick two distinct other indices
+            js = list(range(N)); js.remove(i)
+            r1, r2 = rng.choice(js, size=2, replace=False)
+            prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
+            prop = reflect_to_bounds(prop, bounds)
+            L_new = loglike(prop)
+            # Metropolis accept on *loglike*
+            if np.log(rng.random()) < (L_new - L[i]):
+                X[i] = prop
+                L[i] = L_new
+                accepted[i] = True
+    return X, accepted
+
+def run_smc_demc(
+    X0: np.ndarray,                         # initial ensemble (from your GA)
+    loss_fn: Callable[[np.ndarray], float], # returns scalar loss
+    bounds: List[Bound],
+    ess_trigger: float = 0.6,               # resample when ESS/N < 0.6
+    moves_per_stage: int = 3,
+    rng: np.random.Generator = None,
+    gamma_schedule: Tuple[float,float] = (None, 1.0),  # (default_gamma, occasional_big)
+    big_step_every: int = 6,                # every k stages use gamma≈1
+):
+    """
+    Tempered SMC with DE-MH moves. Returns posterior draws and chain log.
+    """
+    if rng is None: rng = np.random.default_rng()
+
+    N, d = X0.shape
+    # Work in *log-likelihood*; we have loss L, so loglike = -L
+    def loglike(theta): return -float(loss_fn(theta))
+
+    # state
+    X = X0.copy()
+    beta = 0.0
+    stage = 0
+    chains = []          # [(stage, particle_id, accepted, *params)]
+    weights = np.ones(N) / N
+
+    # helper to recompute weights for a beta jump
+    def reweight(beta_prev, beta_new):
+        nonlocal weights
+        delta = beta_new - beta_prev
+        # importance weights proportional to exp(-delta * loss)
+        loss = np.array([loss_fn(x) for x in X], dtype=float)
+        u = np.exp(-delta*loss)
+        w = weights * u
+        w /= w.sum()
+        return w, loss
+
+    # anneal to beta=1
+    while beta < 1.0:
+        # choose next beta by ESS control
+        loss_now = np.array([loss_fn(x) for x in X], dtype=float)
+        beta_next = choose_next_beta(loss_now, beta, target_ess_frac=ess_trigger)
+        beta_next = max(beta_next, min(1.0, beta + 1e-3))
+        # reweight
+        weights, loss_now = reweight(beta, beta_next)
+        beta = beta_next
+
+        # resample if needed
+        ess = effective_sample_size(weights)
+        if ess < ess_trigger * N:
+            idx = systematic_resample(weights, rng)
+            X = X[idx]
+            weights = np.ones(N)/N
+
+        # DE-MH move steps (posterior-invariant at current beta since accept uses loglike = -loss)
+        default_gamma, big_gamma = gamma_schedule
+        gamma = (big_gamma if (stage % big_step_every == 0 and stage > 0) else default_gamma)
+
+        # scale loglike by current beta: accept ratio uses beta * loglike
+        def beta_loglike(theta): return beta * loglike(theta)
+        X, acc = de_mh_move(X, beta_loglike, bounds, steps=moves_per_stage, gamma=gamma, rng=rng)
+
+        # log chains
+        for pid in range(N):
+            chains.append([stage, pid, bool(acc[pid]), *X[pid].tolist()])
+
+        stage += 1
+        if beta >= 1.0 - 1e-12:
+            break
+
+    chains_df = pd.DataFrame(chains, columns=["stage","pid","accepted"] + [f"p{j}" for j in range(X.shape[1])])
+    return X.copy(), chains_df
+

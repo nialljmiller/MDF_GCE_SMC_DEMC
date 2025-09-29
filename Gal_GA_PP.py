@@ -776,8 +776,6 @@ class GalacticEvolutionGA:
 
 
 
-
-
     def GenAl(
         self,
         population_size,
@@ -788,21 +786,20 @@ class GalacticEvolutionGA:
         start_gen=0,
         output_interval=None,
     ):
+        """
+        GA main loop (unchanged behavior) + posterior sampling stage.
+        After finishing the GA generations we run a tempered SMC with
+        Differential-Evolution Metropolis moves to generate true posterior draws.
+        """
+        import gc, time
+        from multiprocessing import Pool, cpu_count
+
         total_eval_time = 0
         total_eval_steps = 0
         total_start_time = time.time()
-
-        # Define helper function for re-quantization
-        def requantize(ind):
-            ind[0] = min(self.sigma_2_list, key=lambda x: abs(x - ind[0]))  # Snap sigma_2 to nearest
-            ind[1] = min(self.tmax_2_list, key=lambda x: abs(x - ind[1]))   # Snap tmax_2 to nearest
-            ind[2] = min(self.infall_timescale_2_list, key=lambda x: abs(x - ind[2]))  # Snap infall_2 to nearest
-            return ind
-
         self.num_generations = num_generations
 
         num_cores = cpu_count()
-
         print('GA CONFIGURATION:')
         print(f'├─ Generations: {num_generations}')
         print(f'├─ Population Size: {population_size}')
@@ -810,45 +807,56 @@ class GalacticEvolutionGA:
         print('═' * 80)
         print()
 
-        # Use a context manager for the multiprocessing pool
+        # --- run the GA exactly as before ---
         if self.PP:
-
             with Pool(processes=num_cores) as pool:
                 toolbox.register("map", pool.map)
                 self._run_genetic_algorithm(
                     population,
                     toolbox,
                     num_generations,
-                    requantize,
+                    requantize=lambda ind: ind,   # no requantization by default
                     start_gen=start_gen,
                     checkpoint_manager=checkpoint_manager,
                     output_interval=output_interval,
                 )
-
         else:
             self._run_genetic_algorithm(
                 population,
                 toolbox,
                 num_generations,
-                requantize,
+                requantize=lambda ind: ind,
                 start_gen=start_gen,
                 checkpoint_manager=checkpoint_manager,
                 output_interval=output_interval,
             )
 
         total_time = time.time() - total_start_time
-
-        # Calculate and print the average evaluation time per individual
         if total_eval_steps > 0:
             eff_avg_eval_time = total_time / total_eval_steps
             overall_avg_eval_time = total_eval_time / total_eval_steps
-            print(f"Overall average evaluation time per individual: {overall_avg_eval_time:.4f} seconds.")
-            print(f"Effective overall average evaluation time per individual: {eff_avg_eval_time:.4f} seconds.")
+            print(f"Overall average evaluation time per individual: {overall_avg_eval_time:.4f} s")
+            print(f"Effective overall average evaluation time per individual: {eff_avg_eval_time:.4f} s")
         else:
             print("No evaluations were performed.")
-        
-        gc.collect()  # Final garbage collection
 
+        gc.collect()
+
+        # --- NEW: posterior sampling stage (SMC + DE-MH) ---
+        try:
+            print("\n[posterior] Starting SMC + DE-MCMC to produce MCMC-like posterior...")
+            self.smc_demc_posterior(
+                population=population,
+                toolbox=toolbox,
+                ess_trigger=0.60,         # resample when ESS/N < 0.60
+                moves_per_stage=3,        # DE–MH steps per stage
+                big_step_every=6,         # γ≈1 sweep every k stages
+                nsamples=200_000,         # rows in posterior_samples.csv (after burn-in thin/resample)
+                burn_frac=0.20            # discard first 20% stages
+            )
+            print("[posterior] Finished. Files written under:", self.output_path)
+        except Exception as e:
+            print("[posterior] SMC+DE-MCMC stage failed:", repr(e))
 
     def evaluate(self, individual):
         # Extract parameters from the individual
@@ -994,6 +1002,190 @@ class GalacticEvolutionGA:
 
         return (primary_loss_value,), result
 
+    def smc_demc_posterior(self,
+                           population,
+                           toolbox,
+                           ess_trigger=0.60,
+                           moves_per_stage=3,
+                           big_step_every=6,
+                           nsamples=200_000,
+                           burn_frac=0.20):
+        """
+        Tempered SMC with Differential-Evolution Metropolis moves.
+
+        Produces:
+          - {output_path}/chains.parquet  (stage, pid, accepted, <params...>)
+          - {output_path}/posterior_samples.csv  (explicit posterior draws)
+        """
+        import os, numpy as np, pandas as pd
+        rng = np.random.default_rng(42)
+
+        # --- helper: pack/unpack continuous genes (indices 5..14) ---
+        param_names = ['sigma_2','tmax_1','tmax_2','infall_timescale_1','infall_timescale_2',
+                       'sfe','delta_sfe','imf_upper_limits','mgal_values','nb_array']
+        start_idx = 5
+        end_idx   = 15
+
+        def indiv_to_vec(ind):
+            return np.array(ind[start_idx:end_idx], dtype=float)
+
+        def reflect_to_bounds(vec):
+            out = vec.copy()
+            for j in range(out.size):
+                lo, hi = self.get_param_bounds(start_idx + j)
+                L = hi - lo
+                if L <= 0:
+                    continue
+                t = (out[j] - lo) % (2*L)
+                out[j] = lo + (t if t <= L else 2*L - t)
+            return out
+
+        def effective_sample_size(w):
+            s = w.sum()
+            return (s*s) / np.dot(w, w)
+
+        def systematic_resample(w):
+            N = len(w)
+            positions = (rng.random() + np.arange(N)) / N
+            c = np.cumsum(w)
+            return np.searchsorted(c, positions, side='right')
+
+        # choose next beta by ESS control against a test delta
+        def choose_next_beta(loss, beta_prev, target_frac):
+            N = len(loss); lo, hi = 1e-6, max(1e-6, 1.0 - beta_prev)
+            target = target_frac * N
+            for _ in range(30):
+                mid = 0.5*(lo+hi)
+                ess = effective_sample_size(np.exp(-mid*loss))
+                if ess < target: hi = mid
+                else:            lo = mid
+            return min(1.0, beta_prev + lo)
+
+        # DE–MCMC block
+        def de_mh_move(X, beta, steps=2, gamma=None, jitter=1e-9):
+            N, d = X.shape
+            if gamma is None:
+                gamma = 2.38 / np.sqrt(2*d)
+            accepted = np.zeros(N, dtype=bool)
+
+            # cache current losses
+            def loglike(th):  # log p(data|th) up to const
+                # We use negative of the scalar GA loss returned by evaluate()
+                # Build a throwaway eval individual without mutating population
+                ind = toolbox.clone(population[0])
+                ind[start_idx:end_idx] = list(th)
+                fit, _ = toolbox.evaluate(ind)
+                return -float(fit[0])
+
+            L = np.array([loglike(x) for x in X], dtype=float)
+            for _ in range(steps):
+                order = rng.permutation(N)
+                for i in order:
+                    # pick two others
+                    js = [k for k in range(N) if k != i]
+                    r1, r2 = rng.choice(js, size=2, replace=False)
+                    prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
+                    prop = reflect_to_bounds(prop)
+                    L_new = loglike(prop)
+                    # Metropolis at tempered posterior (β scales loglike)
+                    if np.log(rng.random()) < beta*(L_new - L[i]):
+                        X[i] = prop
+                        L[i] = L_new
+                        accepted[i] = True
+            return X, accepted
+
+        # --- initial ensemble from final GA population ---
+        X = np.vstack([indiv_to_vec(ind) for ind in population]).astype(float)
+        N, d = X.shape
+
+        # anneal β : 0 → 1 with ESS control
+        beta = 0.0
+        stage = 0
+        chains = []  # rows: [stage, pid, accepted, params...]
+
+        # precompute losses for β-step sizing
+        def current_loss_arr(arr):
+            # evaluate the whole ensemble quickly
+            vals = []
+            for row in arr:
+                ind = population[0][:]
+                ind = list(ind)
+                ind[start_idx:end_idx] = list(row)
+                fit, _ = toolbox.evaluate(ind)
+                vals.append(float(fit[0]))
+            return np.array(vals, dtype=float)
+
+        loss_now = current_loss_arr(X)
+
+        # weights start uniform
+        w = np.ones(N) / N
+
+        while beta < 1.0:
+            beta_next = choose_next_beta(loss_now, beta_prev=beta, target_frac=ess_trigger)
+            beta_next = max(beta_next, min(1.0, beta + 1e-3))
+
+            # reweight by Δβ
+            delta = beta_next - beta
+            u = np.exp(-delta * loss_now)
+            w = (w * u); w /= w.sum()
+            beta = beta_next
+
+            # resample if ESS low
+            ess_val = effective_sample_size(w)
+            if ess_val < ess_trigger * N:
+                idx = systematic_resample(w)
+                X = X[idx]
+                loss_now = loss_now[idx]
+                w[:] = 1.0 / N
+
+            # choose γ (occasional large step)
+            if stage > 0 and stage % big_step_every == 0:
+                gamma = 1.0
+            else:
+                gamma = None
+
+            # DE–MH rejuvenation at current β
+            X, acc = de_mh_move(X, beta=beta, steps=moves_per_stage, gamma=gamma)
+
+            # refresh loss cache after moves (for next Δβ sizing)
+            loss_now = current_loss_arr(X)
+
+            # log chain state for diagnostics
+            for pid in range(N):
+                chains.append([stage, pid, bool(acc[pid]), *X[pid].tolist()])
+
+            print(f"[posterior] stage={stage:02d}  beta={beta:.3f}  ESS={ess_val:.1f}/{N}  accept={acc.mean():.2f}")
+            stage += 1
+            if beta >= 1.0 - 1e-12:
+                break
+
+        # --- write outputs ---
+        os.makedirs(self.output_path, exist_ok=True)
+        cols = ["stage","pid","accepted"] + param_names
+        chains_df = pd.DataFrame(chains, columns=cols)
+
+        # burn-in cut and posterior draws
+        max_stage = int(chains_df["stage"].max())
+        burn_cut  = int(np.floor(max_stage * burn_frac))
+        kept = chains_df[chains_df["stage"] >= burn_cut]
+        # stratified sample across pids to avoid domination
+        if len(kept) > 0:
+            per_pid = max(1, nsamples // max(1, kept["pid"].nunique()))
+            sample_parts = []
+            for pid, g in kept.groupby("pid"):
+                take = min(per_pid, len(g))
+                sample_parts.append(g.sample(n=take, replace=(take>len(g)), random_state=0))
+            samples = pd.concat(sample_parts, axis=0, ignore_index=True)
+            samples = samples[param_names].reset_index(drop=True)
+        else:
+            samples = pd.DataFrame(columns=param_names)
+
+        chains_path   = os.path.join(self.output_path, "chains.parquet")
+        samples_path  = os.path.join(self.output_path, "posterior_samples.csv")
+        chains_df.to_parquet(chains_path, index=False)
+        samples.to_csv(samples_path, index=False)
+        print(f"[posterior] wrote {chains_path}")
+        print(f"[posterior] wrote {samples_path}")
 
 
     def _run_genetic_algorithm(
