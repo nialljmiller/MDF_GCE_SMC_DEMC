@@ -483,15 +483,17 @@ def plot_omega_diagnostics(GalGA, results_df=None, save_path='Omega_Model_Diagno
     return fig
 
 
-def generate_physics_plots(GalGA, results_file='GA/simulation_results.csv'):
+def generate_physics_plots(GalGA, results_file='simulation_results.csv'):
     """Generate physics plots using actual omega model computations"""
-    
+
     print("Generating physics plots using actual omega model data...")
-    
-    os.makedirs('GA', exist_ok=True)
-    
+
+    os.makedirs(GalGA.output_path, exist_ok=True)
+
     # Load results
     import pandas as pd
+    if not os.path.isabs(results_file):
+        results_file = os.path.join(GalGA.output_path, results_file)
     df = pd.read_csv(results_file)
     df.sort_values('fitness', inplace=True)
     print(f"Loaded {len(df)} results from {results_file}")

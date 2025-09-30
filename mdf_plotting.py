@@ -6,6 +6,7 @@
 
 """Plotting utilities for MDF_GA and related bulge diagnostics."""
 
+import argparse
 import os
 import numpy as np
 import pandas as pd
@@ -1183,8 +1184,43 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
     print("Generating Age-Metallicity curves with residuals...")
     age_meta.plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df)
-    
+
     plt.close('all')               # (optional) belt-and-suspenders at the end of an iteration
+
+    # Posterior analysis (corner plot + MDF/AMR summaries)
+    try:
+        from posterior_analysis import run_posterior_report  # local import to avoid hard dependency at module import time
+    except SystemExit as exc:
+        print(f"[posterior] skipped: {exc}")
+    except Exception as exc:
+        print(f"[posterior] skipped: {exc}")
+    else:
+        try:
+            posterior_args = argparse.Namespace(
+                results=os.path.abspath(results_file),
+                history=None,
+                pcard="bulge_pcard.txt",
+                output=None,
+                params=None,
+                nsamples=5000,
+                temperature=None,
+                seed=42,
+            )
+            summary = run_posterior_report(posterior_args)
+            posterior_dir = summary.get(
+                "output_dir", os.path.join(os.path.dirname(results_file), "analysis", "posterior")
+            )
+            ess = summary.get("effective_sample_size")
+            ess_text = f"{ess:.1f}" if isinstance(ess, (int, float)) else "n/a"
+            print(
+                "Posterior analysis complete. Outputs written to "
+                f"{posterior_dir}"
+            )
+            print(
+                f"Posterior draws: {summary.get('posterior_draws')} (ESS={ess_text})"
+            )
+        except Exception as exc:
+            print(f"[posterior] generation failed: {exc}")
 
     print("All plotting complete! Check the output directory for results.")
     print(f"Generated parameter space exploration plots:")

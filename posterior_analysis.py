@@ -577,6 +577,7 @@ def run_posterior_report(args: argparse.Namespace) -> Mapping[str, float]:
         "n_models": len(df_sorted),
         "posterior_draws": int(args.nsamples),
         "parameters": params,
+        "output_dir": str(base_dir),
     }
 
     with open(base_dir / "posterior_summary.json", "w", encoding="utf-8") as fh:
@@ -586,9 +587,9 @@ def run_posterior_report(args: argparse.Namespace) -> Mapping[str, float]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Posterior analysis and focused plotting for GA outputs.")
-    parser.add_argument("--results", default="GA/simulation_results.csv", help="Path to the GA results CSV.")
-    parser.add_argument("--history", default="GA/walker_history.npz", help="Path to walker history NPZ (optional).")
+    parser = argparse.ArgumentParser(description="Posterior analysis and focused plotting for SMC-DEMC outputs.")
+    parser.add_argument("--results", default="SMC_DEMC/simulation_results.csv", help="Path to the posterior results CSV.")
+    parser.add_argument("--history", default="SMC_DEMC/walker_history.npz", help="Path to walker history NPZ (optional).")
     parser.add_argument("--pcard", default="bulge_pcard.txt", help="Path to the pcard/inlist file.")
     parser.add_argument("--output", help="Directory for the posterior outputs (default: <results>/analysis/posterior)")
     parser.add_argument("--params", nargs="*", help="Subset of parameters to include in posteriors.csv")

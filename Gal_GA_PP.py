@@ -27,6 +27,7 @@ import random
 import pandas as pd
 import os
 import mdf_plotting
+from smc_demc import Bound, run_smc_demc, de_mh_move
 
 from loss import *
 from physical_constraints import apply_physics_penalty
@@ -108,8 +109,9 @@ class GalacticEvolutionGA:
                 infall_timescale_2_list, comp_array, imf_array, sfe_array, delta_sfe_array, imf_upper_limits, sn1a_assumptions,
                 stellar_yield_assumptions, mgal_values, nb_array, sn1a_rates, timesteps,A1, A2, feh, normalized_count, obs_age_data,
                 loss_metric='huber', obs_age_data_loss_metric = 'None', obs_age_data_target = 'joyce', mdf_vs_age_weight = 1, fancy_mutation = 'gaussian', 
-                shrink_range = False, tournament_size = 3, lambda_diversity = 0.01, threshold = -1, cxpb=0.5, mutpb=0.5, 
-                gaussian_sigma_scale=0.01, crossover_noise_fraction=0.05, perturbation_strength=0.1, physical_constraints_freq = 10, exploration_steps=0, PP = False):
+                shrink_range = False, tournament_size = 3, lambda_diversity = 0.01, threshold = -1, cxpb=0.5, mutpb=0.5,
+                gaussian_sigma_scale=0.01, crossover_noise_fraction=0.05, perturbation_strength=0.1, physical_constraints_freq = 10, exploration_steps=0, PP = False,
+                demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None):
 
         # Initialize parameters as instance variables
         self.output_path = output_path
@@ -149,6 +151,15 @@ class GalacticEvolutionGA:
         self.MDFs = []
         self.alpha_data = []
         self.model_numbers = []
+        self.metric_header = [
+            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
+            'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
+            'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
+            'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
+            'cosine', 'log_cosh', 'fitness', 'age_meta_fitness', 'physics_penalty'
+        ]
+        self.sample_records = []
+        self.ga_samples_path = None
         self.shrink_range = shrink_range
         # Min and max values for sigma_2, t_2, and infall_2
         self.sigma_2_min, self.sigma_2_max = min(sigma_2_list), max(sigma_2_list)
@@ -167,6 +178,13 @@ class GalacticEvolutionGA:
         self.perturbation_strength = perturbation_strength
         self.exploration_steps = exploration_steps
         self.best_amr_loss = 0.10
+
+        # Differential Evolution MCMC hybrid configuration
+        self.demc_hybrid = bool(demc_hybrid)
+        self.demc_fraction = float(np.clip(demc_fraction, 0.0, 1.0))
+        self.demc_moves_per_gen = max(1, int(demc_moves_per_gen))
+        self.demc_gamma = demc_gamma
+        self.demc_rng = np.random.default_rng(demc_rng_seed)
 
         
         # Calculate parameter space dimensions for reporting
@@ -787,9 +805,10 @@ class GalacticEvolutionGA:
         output_interval=None,
     ):
         """
-        GA main loop (unchanged behavior) + posterior sampling stage.
-        After finishing the GA generations we run a tempered SMC with
-        Differential-Evolution Metropolis moves to generate true posterior draws.
+        GA main loop (unchanged behavior) followed by the integrated SMC-DEMC
+        refinement stage. After finishing the GA generations we run a tempered
+        Sequential Monte Carlo with Differential-Evolution Metropolis moves to
+        turn the final ensemble into posterior-quality samples.
         """
         import gc, time
         from multiprocessing import Pool, cpu_count
@@ -842,21 +861,21 @@ class GalacticEvolutionGA:
 
         gc.collect()
 
-        # --- NEW: posterior sampling stage (SMC + DE-MH) ---
-        try:
-            print("\n[posterior] Starting SMC + DE-MCMC to produce MCMC-like posterior...")
-            self.smc_demc_posterior(
-                population=population,
-                toolbox=toolbox,
-                ess_trigger=0.60,         # resample when ESS/N < 0.60
-                moves_per_stage=3,        # DE–MH steps per stage
-                big_step_every=6,         # γ≈1 sweep every k stages
-                nsamples=200_000,         # rows in posterior_samples.csv (after burn-in thin/resample)
-                burn_frac=0.20            # discard first 20% stages
-            )
-            print("[posterior] Finished. Files written under:", self.output_path)
-        except Exception as e:
-            print("[posterior] SMC+DE-MCMC stage failed:", repr(e))
+        self.export_ga_samples()
+
+        # --- NEW: SMC+DE-MCMC refinement stage ---
+        print("\n[smc-demc] Starting Sequential Monte Carlo refinement using the final GA ensemble...")
+        smc_products = self.run_smc_demc_stage(
+            population=population,
+            toolbox=toolbox,
+            ess_trigger=0.60,         # resample when ESS/N < 0.60
+            moves_per_stage=3,        # DE–MH steps per stage
+            big_step_every=6,         # γ≈1 sweep every k stages
+            nsamples=200_000,         # rows sampled after burn-in thin/resample
+            burn_frac=0.20            # discard first 20% stages
+        )
+        self.smc_demc_products = smc_products
+        print("[smc-demc] Finished. Refinement artefacts written under:", self.output_path)
 
     def evaluate(self, individual):
         # Extract parameters from the individual
@@ -1002,7 +1021,35 @@ class GalacticEvolutionGA:
 
         return (primary_loss_value,), result
 
-    def smc_demc_posterior(self,
+    def _record_evaluation_result(self, result):
+        """Store side-effects from a successful model evaluation."""
+        if result is None:
+            return
+
+        self.labels.append(result.get('label'))
+        self.mdf_data.append([result.get('MDF_x_data'), result.get('MDF_y_data')])
+        self.alpha_data.append(result.get('alpha_arrs'))
+        self.age_data.append([result.get('age_x_data'), result.get('age_y_data')])
+
+        metrics = result.get('metrics')
+        if metrics is not None:
+            self.results.append(metrics)
+            eval_index = self.model_count
+            if len(metrics) == len(self.metric_header):
+                sample = {name: value for name, value in zip(self.metric_header, metrics)}
+                sample['generation'] = getattr(self, 'gen', -1)
+                sample['evaluation'] = eval_index
+                if 'fitness' in sample:
+                    sample['loss'] = sample['fitness']
+                self.sample_records.append(sample)
+        else:
+            self.results.append([None] * len(self.metric_header))
+
+        self.MDFs.append(result.get('cs_MDF'))
+        self.model_numbers.append(result.get('model_number'))
+        self.model_count += 1
+
+    def run_smc_demc_stage(self,
                            population,
                            toolbox,
                            ess_trigger=0.60,
@@ -1011,181 +1058,238 @@ class GalacticEvolutionGA:
                            nsamples=200_000,
                            burn_frac=0.20):
         """
-        Tempered SMC with Differential-Evolution Metropolis moves.
+        Tempered SMC with Differential-Evolution Metropolis moves, executed as the
+        refinement phase of the GA pipeline.
 
-        Produces:
-          - {output_path}/chains.parquet  (stage, pid, accepted, <params...>)
-          - {output_path}/posterior_samples.csv  (explicit posterior draws)
+        Produces CSV artefacts:
+          - {output_path}/chains.csv
+          - {output_path}/smc_demc_samples.csv (and legacy posterior_samples.csv)
+        Returns a dictionary with the written artefacts and in-memory draws.
         """
-        import os, numpy as np, pandas as pd
+        import os
+        import numpy as np
+        import pandas as pd
+
         rng = np.random.default_rng(42)
 
-        # --- helper: pack/unpack continuous genes (indices 5..14) ---
-        param_names = ['sigma_2','tmax_1','tmax_2','infall_timescale_1','infall_timescale_2',
-                       'sfe','delta_sfe','imf_upper_limits','mgal_values','nb_array']
+        categorical_names = [
+            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx'
+        ]
+        param_names = [
+            'sigma_2', 'tmax_1', 'tmax_2', 'infall_timescale_1', 'infall_timescale_2',
+            'sfe', 'delta_sfe', 'imf_upper_limits', 'mgal_values', 'nb_array'
+        ]
+
         start_idx = 5
-        end_idx   = 15
+        end_idx = 15
 
-        def indiv_to_vec(ind):
-            return np.array(ind[start_idx:end_idx], dtype=float)
+        X0 = np.vstack([
+            np.array(ind[start_idx:end_idx], dtype=float)
+            for ind in population
+        ])
 
-        def reflect_to_bounds(vec):
-            out = vec.copy()
-            for j in range(out.size):
-                lo, hi = self.get_param_bounds(start_idx + j)
-                L = hi - lo
-                if L <= 0:
-                    continue
-                t = (out[j] - lo) % (2*L)
-                out[j] = lo + (t if t <= L else 2*L - t)
-            return out
+        categorical0 = np.vstack([
+            np.array(ind[:start_idx], dtype=int)
+            for ind in population
+        ])
 
-        def effective_sample_size(w):
-            s = w.sum()
-            return (s*s) / np.dot(w, w)
+        bounds = [
+            Bound(*self.get_param_bounds(start_idx + j))
+            for j in range(X0.shape[1])
+        ]
 
-        def systematic_resample(w):
-            N = len(w)
-            positions = (rng.random() + np.arange(N)) / N
-            c = np.cumsum(w)
-            return np.searchsorted(c, positions, side='right')
+        base_template = toolbox.clone(population[0])
 
-        # choose next beta by ESS control against a test delta
-        def choose_next_beta(loss, beta_prev, target_frac):
-            N = len(loss); lo, hi = 1e-6, max(1e-6, 1.0 - beta_prev)
-            target = target_frac * N
-            for _ in range(30):
-                mid = 0.5*(lo+hi)
-                ess = effective_sample_size(np.exp(-mid*loss))
-                if ess < target: hi = mid
-                else:            lo = mid
-            return min(1.0, beta_prev + lo)
+        def loss_from_vector(theta, cat_vals=None):
+            ind = toolbox.clone(base_template)
+            if cat_vals is None:
+                cat_vals = categorical0[0]
+            for idx, val in enumerate(cat_vals):
+                ind[idx] = int(val)
+            ind[start_idx:end_idx] = list(theta)
+            if hasattr(ind.fitness, 'values'):
+                del ind.fitness.values
+            fit, _ = toolbox.evaluate(ind)
+            return float(fit[0])
 
-        # DE–MCMC block
-        def de_mh_move(X, beta, steps=2, gamma=None, jitter=1e-9):
-            N, d = X.shape
-            if gamma is None:
-                gamma = 2.38 / np.sqrt(2*d)
-            accepted = np.zeros(N, dtype=bool)
+        ensemble, chains_df = run_smc_demc(
+            X0,
+            loss_from_vector,
+            bounds,
+            metadata0=categorical0,
+            ess_trigger=ess_trigger,
+            moves_per_stage=moves_per_stage,
+            rng=rng,
+            gamma_schedule=(None, 1.0),
+            big_step_every=big_step_every,
+        )
 
-            # cache current losses
-            def loglike(th):  # log p(data|th) up to const
-                # We use negative of the scalar GA loss returned by evaluate()
-                # Build a throwaway eval individual without mutating population
-                ind = toolbox.clone(population[0])
-                ind[start_idx:end_idx] = list(th)
-                fit, _ = toolbox.evaluate(ind)
-                return -float(fit[0])
+        self.refined_population = ensemble.copy()
 
-            L = np.array([loglike(x) for x in X], dtype=float)
-            for _ in range(steps):
-                order = rng.permutation(N)
-                for i in order:
-                    # pick two others
-                    js = [k for k in range(N) if k != i]
-                    r1, r2 = rng.choice(js, size=2, replace=False)
-                    prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
-                    prop = reflect_to_bounds(prop)
-                    L_new = loglike(prop)
-                    # Metropolis at tempered posterior (β scales loglike)
-                    if np.log(rng.random()) < beta*(L_new - L[i]):
-                        X[i] = prop
-                        L[i] = L_new
-                        accepted[i] = True
-            return X, accepted
-
-        # --- initial ensemble from final GA population ---
-        X = np.vstack([indiv_to_vec(ind) for ind in population]).astype(float)
-        N, d = X.shape
-
-        # anneal β : 0 → 1 with ESS control
-        beta = 0.0
-        stage = 0
-        chains = []  # rows: [stage, pid, accepted, params...]
-
-        # precompute losses for β-step sizing
-        def current_loss_arr(arr):
-            # evaluate the whole ensemble quickly
-            vals = []
-            for row in arr:
-                ind = population[0][:]
-                ind = list(ind)
-                ind[start_idx:end_idx] = list(row)
-                fit, _ = toolbox.evaluate(ind)
-                vals.append(float(fit[0]))
-            return np.array(vals, dtype=float)
-
-        loss_now = current_loss_arr(X)
-
-        # weights start uniform
-        w = np.ones(N) / N
-
-        while beta < 1.0:
-            beta_next = choose_next_beta(loss_now, beta_prev=beta, target_frac=ess_trigger)
-            beta_next = max(beta_next, min(1.0, beta + 1e-3))
-
-            # reweight by Δβ
-            delta = beta_next - beta
-            u = np.exp(-delta * loss_now)
-            w = (w * u); w /= w.sum()
-            beta = beta_next
-
-            # resample if ESS low
-            ess_val = effective_sample_size(w)
-            if ess_val < ess_trigger * N:
-                idx = systematic_resample(w)
-                X = X[idx]
-                loss_now = loss_now[idx]
-                w[:] = 1.0 / N
-
-            # choose γ (occasional large step)
-            if stage > 0 and stage % big_step_every == 0:
-                gamma = 1.0
-            else:
-                gamma = None
-
-            # DE–MH rejuvenation at current β
-            X, acc = de_mh_move(X, beta=beta, steps=moves_per_stage, gamma=gamma)
-
-            # refresh loss cache after moves (for next Δβ sizing)
-            loss_now = current_loss_arr(X)
-
-            # log chain state for diagnostics
-            for pid in range(N):
-                chains.append([stage, pid, bool(acc[pid]), *X[pid].tolist()])
-
-            print(f"[posterior] stage={stage:02d}  beta={beta:.3f}  ESS={ess_val:.1f}/{N}  accept={acc.mean():.2f}")
-            stage += 1
-            if beta >= 1.0 - 1e-12:
-                break
-
-        # --- write outputs ---
         os.makedirs(self.output_path, exist_ok=True)
-        cols = ["stage","pid","accepted"] + param_names
-        chains_df = pd.DataFrame(chains, columns=cols)
 
-        # burn-in cut and posterior draws
-        max_stage = int(chains_df["stage"].max())
-        burn_cut  = int(np.floor(max_stage * burn_frac))
+        meta_cols = [f"m{j}" for j in range(categorical0.shape[1])]
+        param_cols = [f"p{j}" for j in range(ensemble.shape[1])]
+        rename_map = {
+            **{old: new for old, new in zip(meta_cols, categorical_names)},
+            **{old: new for old, new in zip(param_cols, param_names)},
+        }
+        chains_df.rename(columns=rename_map, inplace=True)
+
+        max_stage = int(chains_df["stage"].max()) if len(chains_df) else 0
+        burn_cut = int(np.floor(max_stage * burn_frac))
         kept = chains_df[chains_df["stage"] >= burn_cut]
-        # stratified sample across pids to avoid domination
+
         if len(kept) > 0:
             per_pid = max(1, nsamples // max(1, kept["pid"].nunique()))
             sample_parts = []
-            for pid, g in kept.groupby("pid"):
-                take = min(per_pid, len(g))
-                sample_parts.append(g.sample(n=take, replace=(take>len(g)), random_state=0))
+            for pid, group in kept.groupby("pid"):
+                take = min(per_pid, len(group))
+                sample_parts.append(
+                    group.sample(n=take, replace=(take > len(group)), random_state=0)
+                )
             samples = pd.concat(sample_parts, axis=0, ignore_index=True)
             samples = samples[param_names].reset_index(drop=True)
         else:
             samples = pd.DataFrame(columns=param_names)
 
-        chains_path   = os.path.join(self.output_path, "chains.parquet")
-        samples_path  = os.path.join(self.output_path, "posterior_samples.csv")
-        chains_df.to_parquet(chains_path, index=False)
+        chains_path = os.path.join(self.output_path, "chains.csv")
+        chains_df.to_csv(chains_path, index=False)
+        samples_path = os.path.join(self.output_path, "smc_demc_samples.csv")
         samples.to_csv(samples_path, index=False)
-        print(f"[posterior] wrote {chains_path}")
-        print(f"[posterior] wrote {samples_path}")
+        legacy_samples_path = os.path.join(self.output_path, "posterior_samples.csv")
+        if legacy_samples_path != samples_path:
+            samples.to_csv(legacy_samples_path, index=False)
+
+        print(f"[smc-demc] wrote {chains_path}")
+        print(f"[smc-demc] wrote {samples_path}")
+        if legacy_samples_path != samples_path:
+            print(f"[smc-demc] wrote {legacy_samples_path}")
+
+        return {
+            "ensemble": ensemble,
+            "chains": chains_df,
+            "chains_path": chains_path,
+            "samples": samples,
+            "samples_path": samples_path,
+            "legacy_samples_path": legacy_samples_path,
+        }
+
+
+    def export_ga_samples(self):
+        """Persist the GA evaluation history as a sampling-friendly CSV."""
+        if not self.sample_records:
+            return None
+
+        df = pd.DataFrame(self.sample_records)
+        if 'loss' not in df.columns and 'fitness' in df.columns:
+            df['loss'] = df['fitness']
+
+        base_cols = [col for col in ('generation', 'evaluation') if col in df.columns]
+        other_cols = [c for c in df.columns if c not in base_cols]
+        df = df[base_cols + other_cols]
+
+        os.makedirs(self.output_path, exist_ok=True)
+        path = os.path.join(self.output_path, 'ga_population_samples.csv')
+        df.to_csv(path, index=False)
+        self.ga_samples_path = path
+        print(f"[ga-sampler] wrote {path} ({len(df)} rows)")
+        return path
+
+
+    def apply_demc_hybrid_moves(self, population, toolbox):
+        """Apply Differential Evolution MCMC moves to a subset of the population."""
+        if not self.demc_hybrid or len(population) < 3:
+            return
+
+        move_count = int(np.ceil(self.demc_fraction * len(population)))
+        move_count = max(3, min(len(population), move_count))
+        if move_count <= 0:
+            return
+
+        indices = self.demc_rng.choice(len(population), size=move_count, replace=False)
+
+        start_idx = 5
+        end_idx = 15
+
+        X = np.vstack([
+            np.array(population[i][start_idx:end_idx], dtype=float)
+            for i in indices
+        ])
+
+        metadata = np.vstack([
+            np.array(population[i][:start_idx], dtype=int)
+            for i in indices
+        ])
+
+        bounds = [
+            Bound(*self.get_param_bounds(start_idx + j))
+            for j in range(X.shape[1])
+        ]
+
+        base_template = toolbox.clone(population[0])
+        eval_cache = {}
+
+        def cache_key(cat_vals, theta):
+            cat_tuple = tuple(int(v) for v in np.asarray(cat_vals).ravel())
+            theta_bytes = np.asarray(theta, dtype=np.float64).tobytes()
+            return cat_tuple, theta_bytes
+
+        def loss_from_vector(theta, cat_vals):
+            key = cache_key(cat_vals, theta)
+            if key not in eval_cache:
+                ind = toolbox.clone(base_template)
+                for idx, val in enumerate(cat_vals):
+                    ind[idx] = int(val)
+                ind[start_idx:end_idx] = list(theta)
+                if hasattr(ind.fitness, 'values'):
+                    del ind.fitness.values
+                eval_cache[key] = toolbox.evaluate(ind)
+            fit, _ = eval_cache[key]
+            return float(fit[0])
+
+        def loglike(theta, meta=None):
+            return -loss_from_vector(theta, meta)
+
+        X_new, accepted = de_mh_move(
+            X,
+            loglike,
+            bounds,
+            metadata=metadata,
+            steps=self.demc_moves_per_gen,
+            gamma=self.demc_gamma,
+            rng=self.demc_rng,
+        )
+
+        accepted_indices = np.where(accepted)[0]
+        if accepted_indices.size == 0:
+            return
+
+        for local_idx in accepted_indices:
+            pop_idx = indices[local_idx]
+            theta = X_new[local_idx]
+            cat_vals = metadata[local_idx]
+            key = cache_key(cat_vals, theta)
+            fit, result = eval_cache.get(key, (None, None))
+            if fit is None:
+                ind_tmp = toolbox.clone(base_template)
+                for idx, val in enumerate(cat_vals):
+                    ind_tmp[idx] = int(val)
+                ind_tmp[start_idx:end_idx] = list(theta)
+                if hasattr(ind_tmp.fitness, 'values'):
+                    del ind_tmp.fitness.values
+                fit, result = toolbox.evaluate(ind_tmp)
+
+            individual = population[pop_idx]
+            for idx, val in enumerate(cat_vals):
+                individual[idx] = int(val)
+            individual[start_idx:end_idx] = list(theta)
+            individual.fitness.values = fit
+
+            self._record_evaluation_result(result)
+            self.walker_history.setdefault(pop_idx, []).append(list(individual))
+
+        print(f"[demc-hybrid] updated {accepted_indices.size} walkers via DE-MC proposals")
 
 
     def _run_genetic_algorithm(
@@ -1230,14 +1334,7 @@ class GalacticEvolutionGA:
 
                 for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
                     ind.fitness.values = fit
-                    self.labels.append(result['label'])
-                    self.mdf_data.append([result['MDF_x_data'], result['MDF_y_data']])
-                    self.alpha_data.append(result['alpha_arrs'])
-                    self.age_data.append([result['age_x_data'], result['age_y_data']])
-                    self.results.append(result['metrics'])
-                    self.MDFs.append(result['cs_MDF'])
-                    self.model_numbers.append(result['model_number'])
-                    self.model_count += 1
+                    self._record_evaluation_result(result)
 
             gc.collect()
 
@@ -1311,14 +1408,7 @@ class GalacticEvolutionGA:
 
                 for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
                     ind.fitness.values = fit
-                    self.labels.append(result['label'])
-                    self.mdf_data.append([result['MDF_x_data'], result['MDF_y_data']])
-                    self.alpha_data.append(result['alpha_arrs'])
-                    self.age_data.append([result['age_x_data'], result['age_y_data']])
-                    self.results.append(result['metrics'])
-                    self.MDFs.append(result['cs_MDF'])
-                    self.model_numbers.append(result['model_number'])
-                    self.model_count += 1
+                    self._record_evaluation_result(result)
 
             # ---------- Step 6: record history before replacement ----------
             for idx, ind in enumerate(population):
@@ -1327,6 +1417,9 @@ class GalacticEvolutionGA:
             # ---------- Step 7: replace population = elites ⊕ offspring ----------
             new_population = elites + offspring
             population[:] = new_population  # size preserved
+
+            # ---------- Step 7b: optional DE-MCMC refinement on the living population ----------
+            self.apply_demc_hybrid_moves(population, toolbox)
 
             # ---------- Step 8: (optional) adaptive operator rates ----------
             self.update_operator_rates(population, gen, num_generations)
@@ -1346,15 +1439,7 @@ class GalacticEvolutionGA:
 
     def save_partial_results(self, generation):
         """Save results and generate plots for the current generation."""
-        col_names = [
-            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
-            'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
-            'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
-            'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
-            'cosine', 'log_cosh', 'fitness', 'age_meta_fitness', 'physics_penalty'
-        ]
-
-        df = pd.DataFrame(self.results, columns=col_names)
+        df = pd.DataFrame(self.results, columns=self.metric_header)
         df['loss'] = df[self.loss_metric]
         df.sort_values('loss', inplace=True)
         df.reset_index(drop=True, inplace=True)

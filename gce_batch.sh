@@ -33,7 +33,7 @@ for gen in "${generations[@]}"; do
           modify_param "$ts" "$w" "$tgt" "$run_dir" "$gen"
 
           # Echo and run command
-          cmd="python MDF_GA.py"
+          cmd="python MDF_SMC_DEMC_Launcher.py"
           echo "Running: $cmd (for $run_dir)"
           $cmd
 

@@ -96,7 +96,7 @@ def plot_corner_of_top_params(
 
     # ---------- figure layout (no wasted space) ----------
     if save_path is None:
-        base = getattr(GalGA, "output_path", "GA/")
+        base = getattr(GalGA, "output_path", "SMC_DEMC/")
         save_path = os.path.join(base, "analysis", f"corner_top{len(top_params)}_{losscol}.png")
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
@@ -276,7 +276,7 @@ def plot_walker_loss_history(GalGA, walker_history, results_csv='simulation_resu
     ax.legend(loc='best')
 
     fig.tight_layout()
-    outpath = f'GA/loss/walker_loss_history_{loss_metric}.png'
+    outpath = os.path.join(GalGA.output_path, 'loss', f'walker_loss_history_{loss_metric}.png')
     fig.savefig(outpath, bbox_inches='tight')
     plt.close(fig)
 
@@ -1121,7 +1121,7 @@ from scipy.stats import binned_statistic_2d, iqr, gaussian_kde
 from scipy.ndimage import gaussian_filter
 
 def plot_marginal_loss(df, param, losscol='fitness', bins=60,
-                       agg='median', save_path='GA/analysis/marginal_loss.png'):
+                       agg='median', save_path='SMC_DEMC/analysis/marginal_loss.png'):
     """
     1D marginal: aggregated loss vs a single parameter, with sample counts.
     
@@ -1282,7 +1282,7 @@ def plot_binned_loss(GalGA, df, xcol, ycol, losscol='fitness',
     return Z, xedges, yedges, N
 
 
-def plot_delta_and_gradient(xcol, ycol, Z, xedges, yedges, save_prefix='GA/analysis/binned_loss', quiver_step=3):
+def plot_delta_and_gradient(xcol, ycol, Z, xedges, yedges, save_prefix='SMC_DEMC/analysis/binned_loss', quiver_step=3):
     """
     Fixed version of delta and gradient plotting.
     

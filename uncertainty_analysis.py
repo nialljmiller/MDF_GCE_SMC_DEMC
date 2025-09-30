@@ -47,7 +47,7 @@ class UncertaintyAnalysis:
     genetic algorithm results.
     """
     
-    def __init__(self, results_file, output_path='GA/'):
+    def __init__(self, results_file, output_path='SMC_DEMC/'):
         """
         Initialize uncertainty analysis.
         
