@@ -1,3 +1,5 @@
+"""Differential Evolution MCMC utilities shared by the GA and SMC refinement stages."""
+
 # smc_demc.py
 import numpy as np
 import pandas as pd
@@ -55,9 +57,14 @@ def de_mh_move(X: np.ndarray,
                gamma: float = None,
                jitter: float = 1e-9,
                rng: np.random.Generator = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Differential-Evolution Metropolis on an ensemble X (N,d).
-    Returns (X_new, accepted) with per-particle acceptance True/False.
+    """Run Differential-Evolution Metropolis proposals on an ensemble.
+
+    The routine mirrors the original ter Braak DE-MC scheme: each walker proposes a new
+    position using the scaled difference of two peers plus optional Gaussian jitter.  The
+    supplied ``loglike`` is evaluated on every proposal, so callers can cache those results
+    when they want to re-use the same evaluations later (as the hybrid GA now does).
+
+    Returns ``(X_new, accepted)`` with a boolean mask signalling which walkers moved.
     """
     if rng is None: rng = np.random.default_rng()
     N, d = X.shape
@@ -105,8 +112,15 @@ def run_smc_demc(
     gamma_schedule: Tuple[float,float] = (None, 1.0),  # (default_gamma, occasional_big)
     big_step_every: int = 6,                # every k stages use gamma≈1
 ):
-    """
-    Tempered SMC with DE-MH moves. Returns posterior draws and chain log.
+    """Tempered SMC with DE-MC mutation moves.
+
+    The function is used in two places:
+
+    1. Inside the GA run where it now shares its DE-MC move logic via ``de_mh_move``.
+    2. As the dedicated SMC-DEMC posterior stage executed after the GA converges.
+
+    It returns a refined ensemble and a Pandas DataFrame describing every stage/particle
+    transition, which downstream tooling can persist as CSV artefacts.
     """
     if rng is None: rng = np.random.default_rng()
 

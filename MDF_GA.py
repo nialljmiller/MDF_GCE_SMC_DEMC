@@ -320,6 +320,16 @@ def run_ga(cp_manager):
         output_interval=output_interval,
     )
 
+    smc_products = getattr(GalGA, "smc_demc_products", None)
+    if smc_products:
+        print("SMC-DEMC refinement summary:")
+        print(f"  Ensemble shape: {smc_products['ensemble'].shape}")
+        print(f"  Chains log: {smc_products['chains_path']}")
+        print(f"  Samples: {smc_products['samples_path']}")
+        legacy_path = smc_products.get('legacy_samples_path')
+        if legacy_path and legacy_path != smc_products['samples_path']:
+            print(f"  Legacy samples mirror: {legacy_path}")
+
     # 4) Save final results
     col_names = [
         'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
