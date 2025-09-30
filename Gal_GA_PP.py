@@ -28,8 +28,6 @@ import pandas as pd
 import os
 import mdf_plotting
 from smc_demc import Bound, run_smc_demc, de_mh_move
-
-
 from loss import *
 from physical_constraints import apply_physics_penalty
 from explore_dearth import voronoi_explore_dearths
@@ -1126,7 +1124,6 @@ class GalacticEvolutionGA:
         )
 
         self.refined_population = ensemble.copy()
-
 
         os.makedirs(self.output_path, exist_ok=True)
 

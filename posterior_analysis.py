@@ -577,6 +577,7 @@ def run_posterior_report(args: argparse.Namespace) -> Mapping[str, float]:
         "n_models": len(df_sorted),
         "posterior_draws": int(args.nsamples),
         "parameters": params,
+        "output_dir": str(base_dir),
     }
 
     with open(base_dir / "posterior_summary.json", "w", encoding="utf-8") as fh:
