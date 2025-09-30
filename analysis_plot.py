@@ -36,9 +36,9 @@ plt.rcParams.update({
     'axes.linewidth': 1.0,
 })
 
-def ensure_analysis_dir():
-    """Ensure the analysis directory exists"""
-    os.makedirs('GA/analysis', exist_ok=True)
+def ensure_analysis_dir(GalGA):
+    """Ensure the analysis directory exists within the model output path."""
+    os.makedirs(os.path.join(GalGA.output_path, 'analysis'), exist_ok=True)
 
 
 def extract_metrics(results_file):
@@ -310,13 +310,13 @@ def plot_pca_degeneracy_analysis(GalGA, results_file='simulation_results.csv', s
 
 
 
-def plot_parameter_correlation_matrix(GalGA, results_file='GA/simulation_results.csv', save_path='GA/analysis/parameter_correlations.png'):
+def plot_parameter_correlation_matrix(GalGA, results_file='simulation_results.csv', save_path='analysis/parameter_correlations.png'):
     """
     Create a correlation matrix heatmap showing parameter relationships for the fittest 10% of individuals.
     Complements the PCA analysis by showing direct pairwise correlations.
     """
 
-    save_path = GalGA.output_path + save_path
+    save_path = os.path.join(GalGA.output_path, save_path)
 
     df = pd.read_csv(results_file)
     
@@ -377,12 +377,12 @@ def plot_parameter_correlation_matrix(GalGA, results_file='GA/simulation_results
 
 
 
-def analyze_best_fit_parameters(GalGA, results_file='GA/simulation_results.csv', save_path='GA/analysis/best_fit_summary.png'):
+def analyze_best_fit_parameters(GalGA, results_file='simulation_results.csv', save_path='analysis/best_fit_summary.png'):
     """
     Analyze the single best-fit model parameters with proper statistical context.
     """
 
-    save_path = GalGA.output_path + save_path
+    save_path = os.path.join(GalGA.output_path, save_path)
 
     df = pd.read_csv(results_file)
     fitness_col = 'fitness' if 'fitness' in df.columns else 'wrmse'
@@ -473,8 +473,8 @@ def analyze_best_fit_parameters(GalGA, results_file='GA/simulation_results.csv',
 
 
 
-def analyze_top_percentile_parameters(GalGA, results_file='GA/simulation_results.csv', percentile=10, 
-                                      save_path='GA/analysis/top_percentile_analysis.png'):
+def analyze_top_percentile_parameters(GalGA, results_file='simulation_results.csv', percentile=10,
+                                      save_path='analysis/top_percentile_analysis.png'):
     """
     Comprehensive analysis of top N% models with proper uncertainty quantification.
     Normalizes violin and comparison plots to avoid skew from large parameters like M_up.
@@ -483,7 +483,7 @@ def analyze_top_percentile_parameters(GalGA, results_file='GA/simulation_results
     import pandas as pd
     import matplotlib.pyplot as plt
 
-    save_path = GalGA.output_path + save_path
+    save_path = os.path.join(GalGA.output_path, save_path)
 
     df = pd.read_csv(results_file)
     fitness_col = 'fitness' if 'fitness' in df.columns else 'wrmse'
@@ -997,7 +997,8 @@ def run_analysis(GalGA, results_file='simulation_results.csv'):
     Run all analysis functions and create a summary report.
     """
 
-    results_file = GalGA.output_path + results_file
+    if not os.path.isabs(results_file):
+        results_file = os.path.join(GalGA.output_path, results_file)
 
     ensure_analysis_dir(GalGA)
     

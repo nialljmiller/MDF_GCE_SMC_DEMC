@@ -1,3 +1,5 @@
+"""Differential Evolution MCMC utilities shared by the GA and SMC refinement stages."""
+
 # smc_demc.py
 import numpy as np
 import pandas as pd
@@ -48,15 +50,21 @@ def choose_next_beta(loss: np.ndarray, beta_prev: float, target_ess_frac: float=
     return min(1.0, beta_prev + lo)
 
 def de_mh_move(X: np.ndarray,
-               loglike: Callable[[np.ndarray], float],
+               loglike: Callable[[np.ndarray, object], float],
                bounds: List[Bound],
+               metadata: np.ndarray = None,
                steps: int = 2,
                gamma: float = None,
                jitter: float = 1e-9,
                rng: np.random.Generator = None) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Differential-Evolution Metropolis on an ensemble X (N,d).
-    Returns (X_new, accepted) with per-particle acceptance True/False.
+    """Run Differential-Evolution Metropolis proposals on an ensemble.
+
+    The routine mirrors the original ter Braak DE-MC scheme: each walker proposes a new
+    position using the scaled difference of two peers plus optional Gaussian jitter.  The
+    supplied ``loglike`` is evaluated on every proposal, so callers can cache those results
+    when they want to re-use the same evaluations later (as the hybrid GA now does).
+
+    Returns ``(X_new, accepted)`` with a boolean mask signalling which walkers moved.
     """
     if rng is None: rng = np.random.default_rng()
     N, d = X.shape
@@ -64,7 +72,18 @@ def de_mh_move(X: np.ndarray,
         gamma = 2.38 / np.sqrt(2*d)  # ter Braak default
 
     accepted = np.zeros(N, dtype=bool)
-    L = np.array([loglike(x) for x in X], dtype=float)
+
+    if metadata is not None:
+        meta_array = np.asarray(metadata, dtype=object)
+    else:
+        meta_array = None
+
+    def _loglike(idx: int, theta: np.ndarray) -> float:
+        if meta_array is None:
+            return loglike(theta, None)
+        return loglike(theta, meta_array[idx])
+
+    L = np.array([_loglike(i, X[i]) for i in range(N)], dtype=float)
 
     for _ in range(steps):
         order = rng.permutation(N)
@@ -74,7 +93,7 @@ def de_mh_move(X: np.ndarray,
             r1, r2 = rng.choice(js, size=2, replace=False)
             prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
             prop = reflect_to_bounds(prop, bounds)
-            L_new = loglike(prop)
+            L_new = _loglike(i, prop)
             # Metropolis accept on *loglike*
             if np.log(rng.random()) < (L_new - L[i]):
                 X[i] = prop
@@ -84,22 +103,41 @@ def de_mh_move(X: np.ndarray,
 
 def run_smc_demc(
     X0: np.ndarray,                         # initial ensemble (from your GA)
-    loss_fn: Callable[[np.ndarray], float], # returns scalar loss
+    loss_fn: Callable[[np.ndarray, object], float],  # returns scalar loss
     bounds: List[Bound],
+    metadata0: np.ndarray = None,           # ancillary data carried with each particle
     ess_trigger: float = 0.6,               # resample when ESS/N < 0.6
     moves_per_stage: int = 3,
     rng: np.random.Generator = None,
     gamma_schedule: Tuple[float,float] = (None, 1.0),  # (default_gamma, occasional_big)
     big_step_every: int = 6,                # every k stages use gamma≈1
 ):
-    """
-    Tempered SMC with DE-MH moves. Returns posterior draws and chain log.
+    """Tempered SMC with DE-MC mutation moves.
+
+    The function is used in two places:
+
+    1. Inside the GA run where it now shares its DE-MC move logic via ``de_mh_move``.
+    2. As the dedicated SMC-DEMC posterior stage executed after the GA converges.
+
+    It returns a refined ensemble and a Pandas DataFrame describing every stage/particle
+    transition, which downstream tooling can persist as CSV artefacts.
     """
     if rng is None: rng = np.random.default_rng()
 
     N, d = X0.shape
+
+    if metadata0 is not None:
+        metadata = np.asarray(metadata0, dtype=object)
+        if metadata.ndim == 1:
+            metadata = metadata[:, None]
+        if metadata.shape[0] != N:
+            raise ValueError("metadata0 must have the same length as the ensemble")
+    else:
+        metadata = None
+
     # Work in *log-likelihood*; we have loss L, so loglike = -L
-    def loglike(theta): return -float(loss_fn(theta))
+    def loglike(theta, meta=None):
+        return -float(loss_fn(theta, meta))
 
     # state
     X = X0.copy()
@@ -113,7 +151,8 @@ def run_smc_demc(
         nonlocal weights
         delta = beta_new - beta_prev
         # importance weights proportional to exp(-delta * loss)
-        loss = np.array([loss_fn(x) for x in X], dtype=float)
+        loss = np.array([loss_fn(X[i], None if metadata is None else metadata[i])
+                         for i in range(N)], dtype=float)
         u = np.exp(-delta*loss)
         w = weights * u
         w /= w.sum()
@@ -122,7 +161,8 @@ def run_smc_demc(
     # anneal to beta=1
     while beta < 1.0:
         # choose next beta by ESS control
-        loss_now = np.array([loss_fn(x) for x in X], dtype=float)
+        loss_now = np.array([loss_fn(X[i], None if metadata is None else metadata[i])
+                             for i in range(N)], dtype=float)
         beta_next = choose_next_beta(loss_now, beta, target_ess_frac=ess_trigger)
         beta_next = max(beta_next, min(1.0, beta + 1e-3))
         # reweight
@@ -134,6 +174,8 @@ def run_smc_demc(
         if ess < ess_trigger * N:
             idx = systematic_resample(weights, rng)
             X = X[idx]
+            if metadata is not None:
+                metadata = metadata[idx]
             weights = np.ones(N)/N
 
         # DE-MH move steps (posterior-invariant at current beta since accept uses loglike = -loss)
@@ -141,17 +183,40 @@ def run_smc_demc(
         gamma = (big_gamma if (stage % big_step_every == 0 and stage > 0) else default_gamma)
 
         # scale loglike by current beta: accept ratio uses beta * loglike
-        def beta_loglike(theta): return beta * loglike(theta)
-        X, acc = de_mh_move(X, beta_loglike, bounds, steps=moves_per_stage, gamma=gamma, rng=rng)
+        def beta_loglike(theta, meta=None):
+            return beta * loglike(theta, meta)
+
+        X, acc = de_mh_move(
+            X,
+            beta_loglike,
+            bounds,
+            metadata=metadata,
+            steps=moves_per_stage,
+            gamma=gamma,
+            rng=rng,
+        )
 
         # log chains
         for pid in range(N):
-            chains.append([stage, pid, bool(acc[pid]), *X[pid].tolist()])
+            row = [stage, pid, bool(acc[pid])]
+            if metadata is not None:
+                row.extend(np.asarray(metadata[pid]).tolist())
+            row.extend(X[pid].tolist())
+            chains.append(row)
+
+        acc_rate = float(acc.mean()) if acc.size else 0.0
+        print(f"[smc-demc] stage={stage:02d} beta={beta:.3f} ess={ess:.1f}/{N} accept={acc_rate:.2f}")
 
         stage += 1
         if beta >= 1.0 - 1e-12:
             break
 
-    chains_df = pd.DataFrame(chains, columns=["stage","pid","accepted"] + [f"p{j}" for j in range(X.shape[1])])
+    meta_cols = []
+    if metadata is not None:
+        meta_cols = [f"m{j}" for j in range(metadata.shape[1])]
+    chains_df = pd.DataFrame(
+        chains,
+        columns=["stage", "pid", "accepted"] + meta_cols + [f"p{j}" for j in range(X.shape[1])],
+    )
     return X.copy(), chains_df
 

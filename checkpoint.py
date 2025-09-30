@@ -4,8 +4,8 @@ import os
 import pickle
 
 class CheckpointManager:
-    """Simple checkpoint manager for GA runs."""
-    def __init__(self, save_path='GA/'):
+    """Simple checkpoint manager for SMC-DEMC assisted runs."""
+    def __init__(self, save_path='SMC_DEMC/'):
         self.filename = save_path + 'ga_checkpoint.pkl'
 
     def save(self, generation, population, ga_state):
