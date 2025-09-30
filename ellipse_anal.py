@@ -17,7 +17,7 @@ from collections import defaultdict
 
 # ---- UncertaintyAnalysis class (minimal version for this script) ----
 class UncertaintyAnalysis:
-    def __init__(self, results_file, output_path='GA/'):
+    def __init__(self, results_file, output_path='SMC_DEMC/'):
         self.results_file = results_file
         self.output_path = output_path
         self.df = pd.read_csv(results_file)

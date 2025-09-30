@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=GCE_task
-#SBATCH --output=/project/galacticbulge/MDF_GCE_GA/logs/GCE_task_%j.out
-#SBATCH --error=/project/galacticbulge/MDF_GCE_GA/logs/GCE_task_%j.err
+#SBATCH --output=/project/galacticbulge/MDF_GCE_SMC_DEMC/logs/GCE_task_%j.out
+#SBATCH --error=/project/galacticbulge/MDF_GCE_SMC_DEMC/logs/GCE_task_%j.err
 #SBATCH --account=galacticbulge
 #SBATCH --partition=mb                 # fastest start, preemptible
 #SBATCH --qos=fast                     # 12h max; higher priority
@@ -25,7 +25,7 @@ echo "Job: $SLURM_JOB_ID  Host: $(hostname)  Start: $(date)"
 RUN_NAME="${RUN_NAME:-t${TS}_w${W}_$(basename "$TGT" | tr -c 'A-Za-z0-9._-' '_')}"
 # ==========================================
 
-PROJECT_DIR="/project/galacticbulge/MDF_GCE_GA"
+PROJECT_DIR="/project/galacticbulge/MDF_GCE_SMC_DEMC"
 PYENV="${PYENV:-$HOME/python_projects/venv}"
 source "$PYENV/bin/activate"
 
@@ -88,7 +88,7 @@ sed -i "s/^obs_age_data_target:.*/obs_age_data_target: '${TGT//\//\/}'/" bulge_p
 echo "[inlist] $(grep -E '^(sn1a_header|iniab_header|obs_file|output_path|timesteps|mdf_vs_age_weight|obs_age_data_target):' bulge_pcard.txt)"
 
 # --- run one process using all cores ---
-srun --cpu-bind=cores -n 1 python "$PROJECT_DIR/MDF_GA.py"
+srun --cpu-bind=cores -n 1 python "$PROJECT_DIR/MDF_SMC_DEMC_Launcher.py"
 
 popd >/dev/null
 echo "Finish: $(date)"

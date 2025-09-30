@@ -13,7 +13,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "Running on: $(hostname)"
 echo "Starting at: $(date)"
 
-cd /project/galacticbulge/MDF_GCE_GA || exit 1
+cd /project/galacticbulge/MDF_GCE_SMC_DEMC || exit 1
 source ~/python_projects/venv/bin/activate
 mkdir -p logs
 ./gce_batch.sh

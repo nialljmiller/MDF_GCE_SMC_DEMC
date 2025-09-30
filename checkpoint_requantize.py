@@ -1,6 +1,6 @@
 # checkpoint_requantize.py (short version)
 import sys, pickle, math
-path = sys.argv[1] if len(sys.argv)>1 else "GA/ga_checkpoint.pkl"
+path = sys.argv[1] if len(sys.argv)>1 else "SMC_DEMC/ga_checkpoint.pkl"
 K = int(sys.argv[2]) if len(sys.argv)>2 else 16
 with open(path,"rb") as f: data = pickle.load(f)
 pop = data["population"]
