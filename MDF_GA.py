@@ -96,7 +96,7 @@ if rand_seed > 0:
 # Create argument parser
 parser = argparse.ArgumentParser(description='Run MDF Genetic Algorithm with optional plotting only')
 parser.add_argument('--plot-only', action='store_true', help='Skip computation and only generate plots')
-parser.add_argument('--results-file', type=str, default=output_path + 'simulation_results.csv', 
+parser.add_argument('--results-file', type=str, default=os.path.join(output_path, 'simulation_results.csv'),
                    help='CSV file containing results (for plot-only mode)')
 args = parser.parse_args()
 
@@ -123,14 +123,14 @@ normalized_count = count / count.max()  # Normalize count for comparison
 try:
     obs_age_data = load_bensby_data('data/Bensby_Data.tsv')
 except:
-    obs_age_data = load_bensby_data('/project/galacticbulge/MDF_GCE_GA/data/Bensby_Data.tsv')
+    obs_age_data = load_bensby_data('/project/galacticbulge/MDF_GCE_SMC_DEMC/data/Bensby_Data.tsv')
 
 # Global GalGA object to be used for both computation and plotting
 GalGA = None
 
-os.makedirs('GA', exist_ok=True)
-os.makedirs(output_path + 'loss', exist_ok=True)
-os.makedirs(output_path + 'analysis', exist_ok=True)
+os.makedirs(output_path, exist_ok=True)
+os.makedirs(os.path.join(output_path, 'loss'), exist_ok=True)
+os.makedirs(os.path.join(output_path, 'analysis'), exist_ok=True)
 
 # Save/load walker history
 def save_walker_history():
@@ -138,7 +138,7 @@ def save_walker_history():
         return
 
     np.savez_compressed(
-        output_path + 'walker_history.npz',
+        os.path.join(output_path, 'walker_history.npz'),
         walker_ids=np.array(list(GalGA.walker_history.keys()), dtype=np.int32),
         histories=[np.array(h) for h in GalGA.walker_history.values()],
         mdf_data=np.array(GalGA.mdf_data, dtype=object),      # your [Fe/H] vs count
@@ -149,10 +149,11 @@ def save_walker_history():
     print("Walker history saved")
 
 def load_walker_history():
-    if not os.path.exists(output_path + 'walker_history.npz'):
+    history_path = os.path.join(output_path, 'walker_history.npz')
+    if not os.path.exists(history_path):
         return {}
-        
-    data = np.load(output_path + 'walker_history.npz', allow_pickle=True)
+
+    data = np.load(history_path, allow_pickle=True)
     walker_ids = data['walker_ids']
     histories = data['histories']
     
@@ -334,7 +335,7 @@ def run_ga(cp_manager):
         results_df.sort_values('loss', inplace=True)
         results_df.reset_index(drop=True, inplace=True)
 
-    results_file = output_path + 'simulation_results.csv'
+    results_file = os.path.join(output_path, 'simulation_results.csv')
     results_df.to_csv(results_file, index=False)
     print(f"Results saved to: {results_file}")
 
@@ -439,8 +440,7 @@ def load_ga_for_plotting():
     return args.results_file
 
 if __name__ == "__main__":
-
-    results_file = output_path + 'simulation_results.csv'
+    results_file = os.path.join(output_path, 'simulation_results.csv')
 
     make_history = True
     if make_history:
@@ -449,6 +449,6 @@ if __name__ == "__main__":
     else:
         load_ga_for_plotting()
         GalGA.walker_history = load_walker_history()
-    
+
     # Generate all plots using the plotting module
     mdf_plotting.generate_all_plots(GalGA, feh, normalized_count, results_file)
