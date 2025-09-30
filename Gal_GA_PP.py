@@ -110,7 +110,7 @@ class GalacticEvolutionGA:
                 loss_metric='huber', obs_age_data_loss_metric = 'None', obs_age_data_target = 'joyce', mdf_vs_age_weight = 1, fancy_mutation = 'gaussian', 
                 shrink_range = False, tournament_size = 3, lambda_diversity = 0.01, threshold = -1, cxpb=0.5, mutpb=0.5,
                 gaussian_sigma_scale=0.01, crossover_noise_fraction=0.05, perturbation_strength=0.1, physical_constraints_freq = 10, exploration_steps=0, PP = False,
-                demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None):
+                demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None, plot_mode="full"):
 
         # Initialize parameters as instance variables
         self.output_path = output_path
@@ -177,6 +177,7 @@ class GalacticEvolutionGA:
         self.perturbation_strength = perturbation_strength
         self.exploration_steps = exploration_steps
         self.best_amr_loss = 0.10
+        self.plot_mode = str(plot_mode)
 
         # Differential Evolution MCMC hybrid configuration
         self.demc_hybrid = bool(demc_hybrid)
