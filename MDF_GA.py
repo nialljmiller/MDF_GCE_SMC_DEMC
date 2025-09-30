@@ -142,7 +142,8 @@ def save_walker_history():
         walker_ids=np.array(list(GalGA.walker_history.keys()), dtype=np.int32),
         histories=[np.array(h) for h in GalGA.walker_history.values()],
         mdf_data=np.array(GalGA.mdf_data, dtype=object),      # your [Fe/H] vs count
-        alpha_data=np.array(GalGA.alpha_data, dtype=object)   # your α-distributions
+        alpha_data=np.array(GalGA.alpha_data, dtype=object),  # your α-distributions
+        age_data=np.array(getattr(GalGA, 'age_data', []), dtype=object)
     )
 
     print("Walker history saved")
