@@ -98,6 +98,16 @@ parser = argparse.ArgumentParser(description='Run MDF Genetic Algorithm with opt
 parser.add_argument('--plot-only', action='store_true', help='Skip computation and only generate plots')
 parser.add_argument('--results-file', type=str, default=os.path.join(output_path, 'simulation_results.csv'),
                    help='CSV file containing results (for plot-only mode)')
+parser.add_argument(
+    '--plot-mode',
+    default='full',
+    choices=['full', 'posterior_minimal'],
+    help=(
+        'Select which plot bundle to generate. "posterior_minimal" keeps only the MDF fit, '
+        'four-panel alpha comparison, physics diagnostics, and posterior summary to match '
+        'SMC-DEMC focused runs.'
+    )
+)
 args = parser.parse_args()
 
 
@@ -212,7 +222,8 @@ def run_ga(cp_manager):
         mutpb=mutation_probability,
         physical_constraints_freq=physical_constraints_freq,
         exploration_steps=exploration_steps,
-        PP=True
+        PP=True,
+        plot_mode=args.plot_mode
     )
 
     # 1) Init population & toolbox
@@ -417,8 +428,9 @@ def load_ga_for_plotting():
         cxpb=crossover_probability,
         mutpb=mutation_probability,
         physical_constraints_freq=physical_constraints_freq,
-        exploration_steps=exploration_steps,        
-        PP=False  # Don't use parallel processing for plot-only
+        exploration_steps=exploration_steps,
+        PP=False,  # Don't use parallel processing for plot-only
+        plot_mode=args.plot_mode
     )
     
     # Load results from CSV
