@@ -51,3 +51,4 @@ Utilities such as `posterior_analysis.py`, `loss_plot.py`, `analysis_plot.py`, a
 paths and filenames have been updated so they read from `SMC_DEMC/` by default.  The
 `GalacticEvolutionGA` class now delegates posterior sampling to `smc_demc.run_smc_demc`, ensuring a
 single implementation of the SMC-DEMC algorithm is used across the codebase.
+

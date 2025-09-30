@@ -28,7 +28,6 @@ import pandas as pd
 import os
 import mdf_plotting
 from smc_demc import Bound, run_smc_demc, de_mh_move
-
 from loss import *
 from physical_constraints import apply_physics_penalty
 from explore_dearth import voronoi_explore_dearths
@@ -1156,6 +1155,7 @@ class GalacticEvolutionGA:
         chains_path = os.path.join(self.output_path, "chains.csv")
         chains_df.to_csv(chains_path, index=False)
         samples_path = os.path.join(self.output_path, "smc_demc_samples.csv")
+
         samples.to_csv(samples_path, index=False)
         legacy_samples_path = os.path.join(self.output_path, "posterior_samples.csv")
         if legacy_samples_path != samples_path:
