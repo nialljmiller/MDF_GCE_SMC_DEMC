@@ -429,8 +429,8 @@ def load_ga_for_plotting():
         mutpb=mutation_probability,
         physical_constraints_freq=physical_constraints_freq,
         exploration_steps=exploration_steps,
-        PP=False,  # Don't use parallel processing for plot-only
-        plot_mode=args.plot_mode
+        PP=False  # Don't use parallel processing for plot-only
+
     )
     
     # Load results from CSV

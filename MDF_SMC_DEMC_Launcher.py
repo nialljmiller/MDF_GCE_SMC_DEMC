@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""Launcher for the MDF GCE pipeline with SMC-DEMC posterior refinement.
+"""Launcher for running the MDF genetic algorithm with the SMC-DEMC pipeline."""
 
-The launcher enforces the reduced plotting bundle tailored to the posterior-focused
-SMC-DEMC workflow.  Pass ``--plot-mode`` explicitly when invoking the launcher to
-override this default.
-"""
 import runpy
 import sys
 
