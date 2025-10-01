@@ -1,0 +1,48 @@
+# --- caches / builds ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+
+# --- model/checkpoint blobs & arrays ---
+*.pkl
+*.pickle
+*.joblib
+*.npz
+*.npy
+*.h5
+*.hdf5
+*.pt
+*.pth
+*.ckpt
+
+# --- figures & heavy images ---
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+*.tiff
+*.bmp
+
+# --- run/output directories (common in this repo) ---
+bc_batch_*/
+**/bc_batch_*/
+results*/
+**/results*/
+output*/
+**/output*/
+analysis/posterior/
+**/analysis/posterior/
+
+# --- logs and misc large text artifacts ---
+*.log
+*.out
+*.err
+
+# --- BUT: keep all files under data/ tracked ---
+!data/**

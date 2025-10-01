@@ -520,7 +520,7 @@ def run_posterior_report(args: argparse.Namespace) -> Mapping[str, float]:
     rng = np.random.default_rng(args.seed)
     posterior_draws = _posterior_draws(df_sorted, weights, params, args.nsamples, rng)
 
-    base_dir = Path(args.output).expanduser().resolve() if args.output else results_path.parent / "analysis" / "posterior"
+    base_dir = Path(args.output).expanduser().resolve() if args.output else results_path.parent / "posterior"
     _ensure_dir(base_dir)
 
     post_csv = base_dir / "posteriors.csv"
