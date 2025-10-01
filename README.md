@@ -34,6 +34,11 @@ SMC-DEMC refinement stage, which consumes the final GA ensemble and produces cal
 draws. Results, diagnostics, the GA sampling history, and SMC-DEMC chains are written under the
 `output_path` specified in the card (defaults to `SMC_DEMC/`) using plain CSV artefacts.
 
+By default the launcher injects ``--plot-mode posterior_minimal`` so that only the MDF fits,
+four-panel alpha comparison, required physics plots, and the posterior summary are generated.
+Override the flag (e.g. ``python MDF_SMC_DEMC_Launcher.py --plot-mode full``) to restore the
+complete GA diagnostic suite when needed.
+
 ## Batch execution
 
 Updated SLURM batch scripts are provided in the repository:

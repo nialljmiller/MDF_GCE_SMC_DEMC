@@ -979,6 +979,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     age_meta.plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df if not df.empty else None, n_bins=10)
     age_meta.plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df if not df.empty else None)
 
+
     plt.close('all')
 
     # Posterior analysis (corner plot + MDF/AMR summaries)
