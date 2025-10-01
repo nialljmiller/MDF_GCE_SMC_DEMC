@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher for the MDF GCE pipeline with SMC-DEMC posterior refinement."""
+"""Launcher for running the MDF genetic algorithm with the SMC-DEMC pipeline."""
 import runpy
 
 if __name__ == "__main__":

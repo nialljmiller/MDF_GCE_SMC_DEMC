@@ -417,7 +417,7 @@ def load_ga_for_plotting():
         cxpb=crossover_probability,
         mutpb=mutation_probability,
         physical_constraints_freq=physical_constraints_freq,
-        exploration_steps=exploration_steps,        
+        exploration_steps=exploration_steps,
         PP=False  # Don't use parallel processing for plot-only
     )
     
