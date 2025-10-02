@@ -82,6 +82,8 @@ mutation_probability = params['mutation_probability']
 tournament_size = params['tournament_size']
 selection_threshold = params['selection_threshold']
 
+demc_fraction= params['demc_fraction']
+
 obs_age_data_loss_metric = params['obs_age_data_loss_metric']
 obs_age_data_target = params['obs_age_data_target']
 mdf_vs_age_weight = params['mdf_vs_age_weight']
@@ -223,7 +225,12 @@ def run_ga(cp_manager):
         physical_constraints_freq=physical_constraints_freq,
         exploration_steps=exploration_steps,
         PP=True,
-        plot_mode=args.plot_mode
+        plot_mode=args.plot_mode, 
+        demc_hybrid=True, 
+        demc_fraction=demc_fraction, 
+        demc_moves_per_gen=1, 
+        demc_gamma=None, 
+        demc_rng_seed=None
     )
 
     # 1) Init population & toolbox
