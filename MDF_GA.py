@@ -88,7 +88,7 @@ mutation_probability = params['mutation_probability']
 tournament_size = params['tournament_size']
 selection_threshold = params['selection_threshold']
 
-demc_fraction= params['demc_fraction']
+demc_fraction = params['demc_fraction']
 
 obs_age_data_loss_metric = params['obs_age_data_loss_metric']
 obs_age_data_target = params['obs_age_data_target']
