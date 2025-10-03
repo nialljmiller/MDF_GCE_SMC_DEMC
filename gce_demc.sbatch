@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bulge_MCMC
+#SBATCH --job-name=GA_SMC_DEMC
 #SBATCH --output=logs/bulge_MCMC_%j.out
 #SBATCH --error=logs/bulge_MCMC_%j.err
 #SBATCH --account=galacticbulge
@@ -19,10 +19,8 @@ mkdir -p logs
 PYENV="${PYENV:-$HOME/python_projects/venv}"
 source "$PYENV/bin/activate"
 
-
 cd "$SLURM_SUBMIT_DIR"
 
-# one process bound to all 96 cores
-FILE_PATH="${1:?usage: $0 <some_file_path>}"
+FILE_PATH=''
 
 srun --cpu-bind=cores -n 1 python MDF_SMC_DEMC_Launcher.py "$FILE_PATH"
