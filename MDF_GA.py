@@ -40,9 +40,15 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # Adding custom paths
 sys.path.append('../')
 
+print(len(sys.argv))
+if len(sys.argv) > 1:
+    pcard_path = sys.argv[1]
+    pcard_to_be_parsed = os.path.join(pcard_path, 'bulge_pcard.txt')
+else:
+    pcard_to_be_parsed = 'bulge_pcard.txt'
 
 # Parse parameters from the 'bulge_pcard.txt' file
-params = Gal_GA.parse_inlist('bulge_pcard.txt')
+params = Gal_GA.parse_inlist(pcard_to_be_parsed)
 
 # Assign parsed parameters to variables
 output_path = params['output_path']
@@ -93,25 +99,6 @@ if rand_seed > 0:
     _random.seed(rand_seed)
     _np.random.seed(rand_seed)
     _os.environ['PYTHONHASHSEED'] = str(rand_seed)
-
-
-# Create argument parser
-parser = argparse.ArgumentParser(description='Run MDF Genetic Algorithm with optional plotting only')
-parser.add_argument('--plot-only', action='store_true', help='Skip computation and only generate plots')
-parser.add_argument('--results-file', type=str, default=os.path.join(output_path, 'simulation_results.csv'),
-                   help='CSV file containing results (for plot-only mode)')
-parser.add_argument(
-    '--plot-mode',
-    default='full',
-    choices=['full', 'posterior_minimal'],
-    help=(
-        'Select which plot bundle to generate. "posterior_minimal" keeps only the MDF fit, '
-        'four-panel alpha comparison, physics diagnostics, and posterior summary to match '
-        'SMC-DEMC focused runs.'
-    )
-)
-args = parser.parse_args()
-
 
 
 
@@ -225,7 +212,6 @@ def run_ga(cp_manager):
         physical_constraints_freq=physical_constraints_freq,
         exploration_steps=exploration_steps,
         PP=True,
-        plot_mode=args.plot_mode, 
         demc_hybrid=True, 
         demc_fraction=demc_fraction, 
         demc_moves_per_gen=1, 

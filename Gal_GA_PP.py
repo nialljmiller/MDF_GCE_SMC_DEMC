@@ -101,6 +101,56 @@ def should_use_log(min_val, max_val, threshold=2.0):
     return False#np.log10(max_val / min_val) >= threshold
 
 
+# ---------- helpers for printing ----------
+def _is_numeric_seq(x):
+    try:
+        arr = _np.asarray(x)
+        return arr.dtype.kind in "iufo"
+    except Exception:
+        return False
+
+def _minmax(x):
+    arr = _np.asarray(x)
+    return _np.nanmin(arr), _np.nanmax(arr)
+
+def _dtype(x):
+    try:
+        return str(_np.asarray(x).dtype)
+    except Exception:
+        return type(x).__name__
+
+def _preview(x, max_items=12):
+    # robust preview for sequences / arrays; for scalars just repr
+    try:
+        seq = list(x)
+    except TypeError:
+        return repr(x)
+    n = len(seq)
+    if n <= max_items:
+        return repr(seq)
+    head = ", ".join(repr(v) for v in seq[:max_items//2])
+    tail = ", ".join(repr(v) for v in seq[-max_items//2:])
+    return f"[{head}, ..., {tail}]  (showing {max_items} of {n})"
+
+def _summarize(name, x):
+    # returns multi-line string summarizing object x
+    if isinstance(x, (str, bytes)):
+        return f"{name}: type={type(x).__name__}, value={repr(x)}"
+    # sequences/arrays
+    try:
+        n = len(x)  # will fail for scalars
+        numeric = _is_numeric_seq(x)
+        dt = _dtype(x)
+        if numeric and n > 0:
+            lo, hi = _minmax(x)
+            return f"{name}: len={n}, dtype={dt}, min={lo}, max={hi}, values={_preview(x)}"
+        else:
+            return f"{name}: len={n}, dtype={dt}, values={_preview(x)}"
+    except Exception:
+        # scalar
+        return f"{name}: type={type(x).__name__}, value={repr(x)}"
+
+
 
 class GalacticEvolutionGA:
 
@@ -205,46 +255,6 @@ class GalacticEvolutionGA:
         observational_constraints = len(feh)
 
 
-        
-        print('THEORETICAL MODEL CONFIGURATION:')
-        print(f'├─ Temporal Range: t₁ ∈ [{min(tmax_1_list):.3f}, {max(tmax_1_list):.3f}] Gyr')
-        print(f'├─ Second Episode: t₂ ∈ [{min(tmax_2_list):.1f}, {max(tmax_2_list):.1f}] Gyr')  
-        print(f'├─ Spatial Dispersion: σ₂ ∈ [{min(sigma_2_list):.0f}, {max(sigma_2_list):.0f}] pc')
-        print(f'├─ Timescale Domain: τ₁,₂ ∈ [{min(infall_timescale_1_list):.2f}, {max(infall_timescale_2_list):.2f}] Gyr')
-        print(f'├─ Galaxy Mass Range: [{min(mgal_values):.1e}, {max(mgal_values):.1e}] M☉')
-        print(f'├─ SFE Evolution: [{min(sfe_array):.2e}, {max(sfe_array):.2e}] ± Δ[{min(delta_sfe_array):.3f}, {max(delta_sfe_array):.3f}]')
-        print(f'└─ Temporal Resolution: {timesteps} computational timesteps')
-        print()
-        
-        print('STELLAR POPULATION SYNTHESIS:')
-        print(f'├─ Yield Libraries: {len(stellar_yield_assumptions)} theoretical frameworks')
-        print(f'├─ IMF Configurations: {len(imf_array)} functional forms')
-        print(f'├─ Mass Range: [0.1, {min(imf_upper_limits):.0f}–{max(imf_upper_limits):.0f}] M☉')
-        print(f'├─ SN Ia Models: {len(sn1a_assumptions)} progenitor scenarios')
-        print(f'├─ SN Ia Rates: [{min(nb_array):.1e}, {max(nb_array):.1e}] per M☉')
-        print(f'└─ Primordial Compositions: {len(comp_array)} abundance patterns')
-        print()
-        
-        print('OBSERVATIONAL CONSTRAINTS:')
-        print(f'├─ Metallicity Distribution: {observational_constraints} observational data points')
-        print(f'├─ [Fe/H] Range: [{min(feh):.2f}, {max(feh):.2f}] dex')
-        print(f'├─ AMR target: {self.obs_age_data_target}')
-        print(f'└─ Loss Function: {loss_metric.upper()} metric optimization')
-        print()
-        
-        print('GENETIC ALGORITHM CONFIGURATION:')
-        print(f'├─ Mutation Strategy: {fancy_mutation.capitalize()} perturbation scheme')
-        print(f'├─ Selection Method: Tournament selection (τ={tournament_size})')
-        print(f'├─ Crossover Probability: {cxpb:.2f} (noise fraction: {crossover_noise_fraction:.3f})')
-        print(f'├─ Mutation Probability: {mutpb:.2f} (σ-scale: {gaussian_sigma_scale:.3f})')
-        print(f'├─ Perturbation Strength: {perturbation_strength:.2f}')
-        print(f'├─ Physics Constraints: Every {physical_constraints_freq} evaluations')
-        print(f'├─ Parallel Processing: {"ENABLED" if PP else "DISABLED"}')
-        print(f'├─ Parameter Space: {categorical_params:,} categorical × 10 continuous dimensions')
-        print(f'└─ Expected Parameter Volume: ~{categorical_params:.0e} discrete combinations')
-        print()
-
-        
         # Define available loss metrics
         self.loss_functions = {
             'wrmse': compute_wrmse,
@@ -301,6 +311,95 @@ class GalacticEvolutionGA:
             14: 'nb_array'
         }
 
+
+
+        # ---------- CONFIG DUMP ----------
+        print("\n==================== GALACTIC EVOLUTION GA CONFIG ====================")
+        print("FILES / HEADERS")
+        print(_summarize("output_path", output_path))
+        print(_summarize("sn1a_header", sn1a_header))
+        print(_summarize("iniab_header", iniab_header))
+        print()
+
+        print("PARAMETER GRIDS (CATEGORICAL / DISCRETE)")
+        print(_summarize("comp_array", comp_array))
+        print(_summarize("imf_array", imf_array))
+        print(_summarize("sn1a_assumptions", sn1a_assumptions))
+        print(_summarize("stellar_yield_assumptions", stellar_yield_assumptions))
+        print(_summarize("sn1a_rates", sn1a_rates))
+        print()
+
+        print("PARAMETER RANGES (CONTINUOUS / NUMERIC LISTS)")
+        print(_summarize("sigma_2_list (pc)", sigma_2_list))
+        print(_summarize("tmax_1_list (Gyr)", tmax_1_list))
+        print(_summarize("tmax_2_list (Gyr)", tmax_2_list))
+        print(_summarize("infall_timescale_1_list (Gyr)", infall_timescale_1_list))
+        print(_summarize("infall_timescale_2_list (Gyr)", infall_timescale_2_list))
+        print(_summarize("sfe_array", sfe_array))
+        print(_summarize("delta_sfe_array", delta_sfe_array))
+        print(_summarize("imf_upper_limits (Msun)", imf_upper_limits))
+        print(_summarize("mgal_values (Msun)", mgal_values))
+        print(_summarize("nb_array (per Msun)", nb_array))
+        print()
+
+        print("OBSERVATIONAL DATA")
+        print(_summarize("[Fe/H] grid (feh)", feh))
+        print(_summarize("normalized_count MDF", normalized_count))
+        print(_summarize("obs_age_data", obs_age_data))
+        print()
+
+        print("MODEL INTEGRATION / RESOLUTION")
+        print(_summarize("timesteps", timesteps))
+        print(_summarize("A1 (infall amplitude 1)", A1))
+        print(_summarize("A2 (infall amplitude 2)", A2))
+        print()
+
+        print("LOSS / TARGETS")
+        print(f"available_loss_metrics: {list(self.loss_functions.keys())}")
+        print(f"selected_loss_metric: {loss_metric}")
+        print(f"obs_age_data_loss_metric: {obs_age_data_loss_metric}")
+        print(f"obs_age_data_target: {obs_age_data_target}")
+        print(f"mdf_vs_age_weight: {mdf_vs_age_weight}")
+        print()
+
+        print("GA SETTINGS")
+        print(f"selection: tournament (size={tournament_size})")
+        print(f"crossover: cxpb={cxpb}, noise_fraction={crossover_noise_fraction}")
+        print(f"mutation:  mutpb={mutpb}, gaussian_sigma_scale={gaussian_sigma_scale}, perturbation_strength={perturbation_strength}")
+        print(f"fancy_mutation: {fancy_mutation}")
+        print(f"lambda_diversity: {lambda_diversity}")
+        print(f"threshold (early-stop / acceptance): {threshold}")
+        print(f"physics_constraints_freq: every {physical_constraints_freq} evals")
+        print(f"exploration_steps (pre-random walks): {exploration_steps}")
+        print(f"parallel_processing (PP): {bool(PP)}")
+        print(f"plot_mode: {self.plot_mode}")
+        print(f"shrink_range: {bool(shrink_range)}")
+        print()
+
+        print("DEMC HYBRID")
+        print(f"demc_hybrid: {bool(self.demc_hybrid)}")
+        print(f"demc_fraction: {self.demc_fraction}")
+        print(f"demc_moves_per_gen: {self.demc_moves_per_gen}")
+        print(f"demc_gamma: {self.demc_gamma}")
+        print(f"demc_rng_seed: {demc_rng_seed}")
+        print()
+
+        print("DERIVED / SANITY CHECKS")
+        print(f"t2_range (Gyr): [{self.t_2_min}, {self.t_2_max}]")
+        print(f"sigma2_range (pc): [{self.sigma_2_min}, {self.sigma_2_max}]")
+        print(f"infall2_timescale_range (Gyr): [{self.infall_2_min}, {self.infall_2_max}]")
+        try:
+            total_cont_dims = 10
+            print(f"parameter_space: {categorical_params:,} categorical × {total_cont_dims} continuous dims")
+        except Exception:
+            pass
+        print(f"observational_points (MDF bins): {observational_constraints}")
+        try:
+            vol_est = f"~{categorical_params:.0e}"
+            print(f"expected_discrete_combinations: {vol_est}")
+        except Exception:
+            pass
+        print("======================================================================\n")
 
 
 
@@ -631,7 +730,7 @@ class GalacticEvolutionGA:
         """
 
         # --- schedule (fractions of total gens) ---
-        explore_frac = 0#getattr(self, "explore_frac", self.exploration_steps)   # first 20% of gens
+        explore_frac = getattr(self, "explore_frac", self.exploration_steps)   # first 20% of gens
         focus_frac   = getattr(self, "focus_frac",   0.70)   # until 70%; last 30% exploit
 
         gA = int(explore_frac * num_generations)

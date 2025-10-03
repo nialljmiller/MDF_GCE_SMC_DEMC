@@ -23,4 +23,6 @@ source "$PYENV/bin/activate"
 cd "$SLURM_SUBMIT_DIR"
 
 # one process bound to all 96 cores
-srun --cpu-bind=cores -n 1 python MDF_SMC_DEMC_Launcher.py
+FILE_PATH="${1:?usage: $0 <some_file_path>}"
+
+srun --cpu-bind=cores -n 1 python MDF_SMC_DEMC_Launcher.py "$FILE_PATH"
