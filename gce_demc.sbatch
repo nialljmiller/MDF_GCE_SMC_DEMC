@@ -23,4 +23,6 @@ cd "$SLURM_SUBMIT_DIR"
 
 FILE_PATH=''
 
+unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU SLURM_MEM_PER_NODE
+
 srun --cpu-bind=cores -n 1 python MDF_SMC_DEMC_Launcher.py "$FILE_PATH"
