@@ -23,9 +23,8 @@ import checkpoint  # checkpointing utilities
 # Import plotting module
 import mdf_plotting
 from multiprocessing import cpu_count
-import shutil
-import os
 import numpy as _np, random as _random, os as _os
+import os, shutil
 
 
 def load_bensby_data(file_path='data/Bensby_Data.tsv'):
@@ -41,19 +40,32 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 sys.path.append('../')
 
 print(len(sys.argv))
+
+# --- Resolve pcard path from CLI robustly ---
 if len(sys.argv) > 1:
-    pcard_path = sys.argv[1]
-    pcard_to_be_parsed = os.path.join(pcard_path, 'bulge_pcard.txt')
+    arg_path = sys.argv[1]
+    if os.path.isdir(arg_path):
+        pcard_to_be_parsed = os.path.join(arg_path, 'bulge_pcard.txt')
+    else:
+        pcard_to_be_parsed = arg_path
 else:
     pcard_to_be_parsed = 'bulge_pcard.txt'
 
-# Parse parameters from the 'bulge_pcard.txt' file
-params = Gal_GA.parse_inlist(pcard_to_be_parsed)
+# Parse parameters from the selected pcard
+params = Gal_GA.parse_inlist(pcard_to_be_parsed)  # fixed: always parse the requested file
 
-# Assign parsed parameters to variables
+# Create output dir
 output_path = params['output_path']
 os.makedirs(output_path, exist_ok=True)
-shutil.copy('bulge_pcard.txt', os.path.join(output_path, 'bulge_pcard.txt'))
+
+# Archive the exact pcard we actually used (do not clobber with base)
+dest_pcard = os.path.join(output_path, 'bulge_pcard.txt')
+src_pcard  = os.path.abspath(pcard_to_be_parsed)
+dst_pcard  = os.path.abspath(dest_pcard)
+if src_pcard != dst_pcard:
+    shutil.copy2(src_pcard, dest_pcard)
+
+
 
 obs_file = params['obs_file']
 iniab_header = params['iniab_header']
