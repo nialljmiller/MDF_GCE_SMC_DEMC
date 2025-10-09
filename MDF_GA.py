@@ -347,6 +347,9 @@ def run_ga(cp_manager):
         legacy_path = smc_products.get('legacy_samples_path')
         if legacy_path and legacy_path != smc_products['samples_path']:
             print(f"  Legacy samples mirror: {legacy_path}")
+        corner_path = smc_products.get('corner_path')
+        if corner_path:
+            print(f"  Corner plot: {corner_path}")
 
     # 4) Save final results
     col_names = [
