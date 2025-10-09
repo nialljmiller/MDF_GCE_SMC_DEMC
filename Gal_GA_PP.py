@@ -27,6 +27,7 @@ import random
 import pandas as pd
 import os
 import mdf_plotting
+import corner
 from smc_demc import Bound, run_smc_demc, de_mh_move
 from loss import *
 from physical_constraints import apply_physics_penalty
@@ -1261,6 +1262,36 @@ class GalacticEvolutionGA:
         if legacy_samples_path != samples_path:
             samples.to_csv(legacy_samples_path, index=False)
 
+        corner_path = None
+        if not samples.empty:
+            corner_labels = [
+                "σ₂",
+                "t₁",
+                "t₂",
+                "τ₁",
+                "τ₂",
+                "SFE",
+                "ΔSFE",
+                "IMF₍max₎",
+                "Mgal",
+                "N₍B₎",
+            ]
+            try:
+                fig = corner.corner(
+                    samples.to_numpy(),
+                    labels=corner_labels,
+                    show_titles=True,
+                    quantiles=[0.16, 0.5, 0.84],
+                    title_fmt=".3f",
+                )
+            except Exception as exc:
+                print(f"[smc-demc] corner plot failed: {exc}")
+            else:
+                corner_path = os.path.join(self.output_path, "smc_demc_posterior_corner.png")
+                fig.savefig(corner_path, dpi=300, bbox_inches="tight")
+                plt.close(fig)
+                print(f"[smc-demc] wrote {corner_path}")
+
         print(f"[smc-demc] wrote {chains_path}")
         print(f"[smc-demc] wrote {samples_path}")
         if legacy_samples_path != samples_path:
@@ -1273,6 +1304,7 @@ class GalacticEvolutionGA:
             "samples": samples,
             "samples_path": samples_path,
             "legacy_samples_path": legacy_samples_path,
+            "corner_path": corner_path,
         }
 
 

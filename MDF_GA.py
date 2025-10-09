@@ -153,7 +153,7 @@ def save_walker_history():
     np.savez_compressed(
         os.path.join(output_path, 'walker_history.npz'),
         walker_ids=np.array(list(GalGA.walker_history.keys()), dtype=np.int32),
-        histories=[np.array(h) for h in GalGA.walker_history.values()],
+        histories=np.array([np.array(h) for h in GalGA.walker_history.values()], dtype=object),
         mdf_data=np.array(GalGA.mdf_data, dtype=object),      # your [Fe/H] vs count
         alpha_data=np.array(GalGA.alpha_data, dtype=object),  # your α-distributions
         age_data=np.array(getattr(GalGA, 'age_data', []), dtype=object)
@@ -347,6 +347,9 @@ def run_ga(cp_manager):
         legacy_path = smc_products.get('legacy_samples_path')
         if legacy_path and legacy_path != smc_products['samples_path']:
             print(f"  Legacy samples mirror: {legacy_path}")
+        corner_path = smc_products.get('corner_path')
+        if corner_path:
+            print(f"  Corner plot: {corner_path}")
 
     # 4) Save final results
     col_names = [
