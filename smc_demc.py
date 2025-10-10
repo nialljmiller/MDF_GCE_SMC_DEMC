@@ -1,9 +1,11 @@
 """Differential Evolution MCMC utilities shared by the GA and SMC refinement stages."""
 
 # smc_demc.py
+import os
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
+from multiprocessing.pool import ThreadPool
 from typing import Callable, List, Tuple
 
 @dataclass
@@ -56,7 +58,8 @@ def de_mh_move(X: np.ndarray,
                steps: int = 2,
                gamma: float = None,
                jitter: float = 1e-9,
-               rng: np.random.Generator = None) -> Tuple[np.ndarray, np.ndarray]:
+               rng: np.random.Generator = None,
+               max_workers: int = None) -> Tuple[np.ndarray, np.ndarray]:
     """Run Differential-Evolution Metropolis proposals on an ensemble.
 
     The routine mirrors the original ter Braak DE-MC scheme: each walker proposes a new
@@ -73,6 +76,13 @@ def de_mh_move(X: np.ndarray,
 
     accepted = np.zeros(N, dtype=bool)
 
+    if max_workers is None:
+        max_workers = os.cpu_count() or 1
+    max_workers = max(1, int(max_workers))
+    use_threads = max_workers > 1
+    pool = ThreadPool(processes=max_workers) if use_threads else None
+    batch_size = max_workers if use_threads else 1
+
     if metadata is not None:
         meta_array = np.asarray(metadata, dtype=object)
     else:
@@ -83,22 +93,42 @@ def de_mh_move(X: np.ndarray,
             return loglike(theta, None)
         return loglike(theta, meta_array[idx])
 
+    def _eval_proposal(args):
+        idx, theta = args
+        return _loglike(idx, theta)
+
     L = np.array([_loglike(i, X[i]) for i in range(N)], dtype=float)
 
-    for _ in range(steps):
-        order = rng.permutation(N)
-        for i in order:
-            # pick two distinct other indices
-            js = list(range(N)); js.remove(i)
-            r1, r2 = rng.choice(js, size=2, replace=False)
-            prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
-            prop = reflect_to_bounds(prop, bounds)
-            L_new = _loglike(i, prop)
-            # Metropolis accept on *loglike*
-            if np.log(rng.random()) < (L_new - L[i]):
-                X[i] = prop
-                L[i] = L_new
-                accepted[i] = True
+    try:
+        for _ in range(steps):
+            order = rng.permutation(N)
+            for start in range(0, N, batch_size):
+                batch = order[start:start + batch_size]
+                proposals = []
+                eval_args = []
+                for i in batch:
+                    # pick two distinct other indices
+                    js = list(range(N))
+                    js.remove(i)
+                    r1, r2 = rng.choice(js, size=2, replace=False)
+                    prop = X[i] + gamma*(X[r1]-X[r2]) + rng.normal(scale=jitter, size=d)
+                    prop = reflect_to_bounds(prop, bounds)
+                    proposals.append((i, prop))
+                    eval_args.append((i, prop.copy()))
+                if pool is not None:
+                    L_news = pool.map(_eval_proposal, eval_args)
+                else:
+                    L_news = [_eval_proposal(arg) for arg in eval_args]
+                for (i, prop), L_new in zip(proposals, L_news):
+                    # Metropolis accept on *loglike*
+                    if np.log(rng.random()) < (L_new - L[i]):
+                        X[i] = prop
+                        L[i] = L_new
+                        accepted[i] = True
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
     return X, accepted
 
 def run_smc_demc(
@@ -111,6 +141,7 @@ def run_smc_demc(
     rng: np.random.Generator = None,
     gamma_schedule: Tuple[float,float] = (None, 1.0),  # (default_gamma, occasional_big)
     big_step_every: int = 6,                # every k stages use gamma≈1
+    max_workers: int = None,
 ):
     """Tempered SMC with DE-MC mutation moves.
 
@@ -194,6 +225,7 @@ def run_smc_demc(
             steps=moves_per_stage,
             gamma=gamma,
             rng=rng,
+            max_workers=max_workers,
         )
 
         # log chains

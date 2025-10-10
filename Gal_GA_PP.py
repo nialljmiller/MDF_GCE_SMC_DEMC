@@ -161,7 +161,7 @@ class GalacticEvolutionGA:
                 loss_metric='huber', obs_age_data_loss_metric = 'None', obs_age_data_target = 'joyce', mdf_vs_age_weight = 1, fancy_mutation = 'gaussian', 
                 shrink_range = False, tournament_size = 3, lambda_diversity = 0.01, threshold = -1, cxpb=0.5, mutpb=0.5,
                 gaussian_sigma_scale=0.01, crossover_noise_fraction=0.05, perturbation_strength=0.1, physical_constraints_freq = 10, exploration_steps=0, PP = False,
-                demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None, plot_mode="full"):
+                demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None, demc_workers=None, plot_mode="full"):
 
         # Initialize parameters as instance variables
         self.output_path = output_path
@@ -235,6 +235,7 @@ class GalacticEvolutionGA:
         self.demc_fraction = float(np.clip(demc_fraction, 0.0, 1.0))
         self.demc_moves_per_gen = max(1, int(demc_moves_per_gen))
         self.demc_gamma = demc_gamma
+        self.demc_workers = None if demc_workers in (None, 0) else int(demc_workers)
         self.demc_rng = np.random.default_rng(demc_rng_seed)
 
         
@@ -383,6 +384,7 @@ class GalacticEvolutionGA:
         print(f"demc_moves_per_gen: {self.demc_moves_per_gen}")
         print(f"demc_gamma: {self.demc_gamma}")
         print(f"demc_rng_seed: {demc_rng_seed}")
+        print(f"demc_workers: {self.demc_workers}")
         print()
 
         print("DERIVED / SANITY CHECKS")
@@ -1219,6 +1221,7 @@ class GalacticEvolutionGA:
             rng=rng,
             gamma_schedule=(None, 1.0),
             big_step_every=big_step_every,
+            max_workers=self.demc_workers,
         )
 
         self.refined_population = ensemble.copy()
@@ -1388,6 +1391,7 @@ class GalacticEvolutionGA:
             steps=self.demc_moves_per_gen,
             gamma=self.demc_gamma,
             rng=self.demc_rng,
+            max_workers=self.demc_workers,
         )
 
         accepted_indices = np.where(accepted)[0]
