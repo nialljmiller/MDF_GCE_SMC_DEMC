@@ -236,6 +236,8 @@ class GalacticEvolutionGA:
         self.demc_moves_per_gen = max(1, int(demc_moves_per_gen))
         self.demc_gamma = demc_gamma
         self.demc_workers = None if demc_workers in (None, 0) else int(demc_workers)
+
+
         self.demc_rng = np.random.default_rng(demc_rng_seed)
 
         
@@ -513,6 +515,14 @@ class GalacticEvolutionGA:
         
         toolbox.register("select", self.selTournament, tournsize=self.tournament_size)#, lambda_diversity=self.lambda_diversity)
 
+
+        if self.demc_workers is None:
+            self.demc_workers = population_size
+
+        print("Walkers")
+        print(f"GA individuals: {population_size}")
+        print(f"demc_workers: {self.demc_workers}")
+        print("")
 
 
         #test that supid ass age meta stuff. 

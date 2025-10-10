@@ -30,7 +30,7 @@ iniab_header: 'yield_tables/iniabu/'
 # References: Kobayashi et al. (2020, ApJ, 900, 179) for metallicity-dependent SN Ia in GCE.
 sn1a_header: 'yield_tables/'
 
-output_path: 'bc_batch_local_small2_100_MDF/'
+output_path: 'bc_batch_local_100_MDF/'
 seed: -1
 ##################yeah ##########################################
 #
@@ -52,11 +52,11 @@ seed: -1
 # References: Goldberg (1989, Genetic Algorithms book) for popsize ~100-200 in complex spaces.
 popsize:-1
 
-demc_fraction:0.1
+demc_fraction:0.4
 # How many generations (/epochs) are performed. 
 # Justification: 128 ensures ~16k evaluations; sufficient for convergence in 10-20 dim spaces.
 # References: Whitley (1994, Foundations of Genetic Algorithms) for generation scaling.
-generations: 1024
+generations: 128
 
 # Interval (in generations) at which full results and plots are generated
 # Set to a positive integer to enable periodic output
@@ -231,12 +231,12 @@ comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_outp
 # Contentious: High SFE (>0.5) debated for sustained periods (leads to rapid depletion), but observed in starbursts; typical bulge ~0.02-0.2.
 # References: Leroy et al. (2013, AJ, 146, 19) for 0.01-1 in dense environments; Bigiel et al. (2008, AJ, 136, 2846) 0.002-0.1; Kennicutt et al. (2021, ARA&A, 59, 319) up to 10 in bursts, but ~1 for bulges; Grisoni et al. (2020, MNRAS, 492, 2828) ~0.02 for bulge.
 ############################################################
-sfe_array: [0.01, 0.035]
+sfe_array: [0.1, 100.0]
 
 # Justification for delta_sfe: -0.5 to 1.0 allows moderate quenching (-0.5) or burst (+1.0) at second infall; expanded negative for post-merger dilution scenarios.
 # Contentious: Negative delta (decrease) debated vs. positive (increase) in two-infall; range covers quenching in secular evolution.
 # References: Spitoni et al. (2019, A&A, 632, A58) for Δ~0.5-2 increases; Chiappini et al. (2001) variations 0-2; Matteucci et al. (2024) potential decreases ~ -0.5 for dilution; Grisoni et al. (2020) Δ~0-1.
-delta_sfe_array: [-0.006, 0.006]
+delta_sfe_array: [0.1, 2.0]
 
 ############################################################
 #
