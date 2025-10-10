@@ -231,12 +231,12 @@ comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_outp
 # Contentious: High SFE (>0.5) debated for sustained periods (leads to rapid depletion), but observed in starbursts; typical bulge ~0.02-0.2.
 # References: Leroy et al. (2013, AJ, 146, 19) for 0.01-1 in dense environments; Bigiel et al. (2008, AJ, 136, 2846) 0.002-0.1; Kennicutt et al. (2021, ARA&A, 59, 319) up to 10 in bursts, but ~1 for bulges; Grisoni et al. (2020, MNRAS, 492, 2828) ~0.02 for bulge.
 ############################################################
-sfe_array: [0.1, 100.0]
+sfe_array: [1.0, 30.0]
 
 # Justification for delta_sfe: -0.5 to 1.0 allows moderate quenching (-0.5) or burst (+1.0) at second infall; expanded negative for post-merger dilution scenarios.
 # Contentious: Negative delta (decrease) debated vs. positive (increase) in two-infall; range covers quenching in secular evolution.
 # References: Spitoni et al. (2019, A&A, 632, A58) for Δ~0.5-2 increases; Chiappini et al. (2001) variations 0-2; Matteucci et al. (2024) potential decreases ~ -0.5 for dilution; Grisoni et al. (2020) Δ~0-1.
-delta_sfe_array: [0.1, 2.0]
+delta_sfe_array: [0.01, 0.85]
 
 ############################################################
 #
@@ -296,8 +296,8 @@ sn1a_assumptions: ['sn1a_Gronow.txt','sn1a_shen.txt']
 # Contentious: High rotation (300 km/s) may overproduce N; average/no rotation standard for bulge.
 # References: Limongi & Chieffi (2018, ApJS, 237, 13) for rotation 0-300 km/s; Prantzos et al. (2018, A&A, 611, A92) rotation in GCE; Choplin et al. (2018, A&A, 611, A47) impact on yields; Nomoto et al. (2013, ARA&A, 51, 457) for HNe.
 ############################################################
-#stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_R150.txt', 'agb_and_massive_stars_K10_LC18_Ravg.txt', 'agb_and_massive_stars_K10_LC18_R000.txt', 'agb_and_massive_stars_C15_N13_0_0_HNe.txt']
-stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_Ravg.txt']
+stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_R150.txt', 'agb_and_massive_stars_K10_LC18_Ravg.txt', 'agb_and_massive_stars_K10_LC18_R000.txt', 'agb_and_massive_stars_C15_N13_0_0_HNe.txt']
+#stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_Ravg.txt']
 
 ############################################################
 #
