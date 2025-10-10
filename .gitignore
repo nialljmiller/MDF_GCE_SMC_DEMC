@@ -38,7 +38,7 @@ output*/
 **/output*/
 analysis/posterior/
 **/analysis/posterior/
-
+analysis/
 # --- logs and misc large text artifacts ---
 *.log
 *.out
