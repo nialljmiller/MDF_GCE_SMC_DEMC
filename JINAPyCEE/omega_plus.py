@@ -436,7 +436,7 @@ class omega_plus():
             if current_age < t_second_infall:
                 base_sfe = self.inner.sfe  # Original SFE before second infall
             else:
-                base_sfe = self.inner.sfe + self.delta_sfe  # SFE after second infall
+                base_sfe = self.inner.sfe * self.delta_sfe  # SFE after second infall
                 
             # Apply mass dependence if enabled
             if self.sfe_m_dep:

@@ -613,6 +613,10 @@ def _discover_result_folders(base_dir):
         csvs = sorted(glob.glob(os.path.join(p, "simulation_results.csv")))
         if csvs:
             out.append((name, p, csvs))
+
+        csvs = sorted(glob.glob(os.path.join(p, "simulation_results_*_.csv")))            
+        if csvs:    
+            out.append((name, p, csvs))
     return out
 
 def _parse_suffix_from_name(fname):

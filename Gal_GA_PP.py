@@ -453,10 +453,7 @@ class GalacticEvolutionGA:
             toolbox.register("infall_2_attr", random.uniform, min(self.infall_timescale_2_list), max(self.infall_timescale_2_list))
 
         # sfe
-        if should_use_log(min(self.sfe_array), max(self.sfe_array)):
-            toolbox.register("sfe_attr", log_uniform, min(self.sfe_array), max(self.sfe_array))
-        else:
-            toolbox.register("sfe_attr", random.uniform, min(self.sfe_array), max(self.sfe_array))
+        toolbox.register("sfe_attr", log_uniform, min(self.sfe_array), max(self.sfe_array))
 
         # delta_sfe
         if should_use_log(min(self.delta_sfe_array), max(self.delta_sfe_array)):
