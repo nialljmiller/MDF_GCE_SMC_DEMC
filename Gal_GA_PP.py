@@ -1016,13 +1016,133 @@ class GalacticEvolutionGA:
         sn1a_header = self.sn1a_header
         iniab_header = self.iniab_header
 
+
+        # --- 1. Define Total Timesteps and Max Age (from self) ---
+        N_total = self.timesteps # 500
+        T_total = 13.0e9          # 13.0 Gyr in years (from pcard)
+        
+        # Infall Timescales (converted to seconds)
+        tau_1_sec = infall_1 * 1.0e9
+        tau_2_sec = infall_2 * 1.0e9
+        
+        # --- 2. Dynamic Timestep Budget Allocation (60/40 Split) ---
+        N_high_res_total = int(N_total * 0.60) # 300 steps
+        N_low_res        = N_total - N_high_res_total # 200 steps
+
+        # --- 3. Calculate Volatile Zone Durations (Physics-Driven) ---
+        
+        # T_Volatile_1: Duration of high-res zone 1, scaled by its decay timescale (tau_1)
+        # Use 3 * tau_1 to capture ~95% of the exponential decay time.
+        T_VOLATILE_1 = 3.0 * tau_1_sec
+        
+        # T_Volatile_2: Duration of high-res zone 2, scaled by its decay timescale (tau_2)
+        T_VOLATILE_2 = 3.0 * tau_2_sec
+        
+        # Total time span covered by high-resolution zones
+        T_HIGH_TOTAL = T_VOLATILE_1 + T_VOLATILE_2
+
+        # --- 4. Allocate Steps Based on Time Ratios within the 60% Budget ---
+        
+        # Allocate N_HIGH_1 (Phase 1) based on its time fraction (T_VOLATILE_1 / T_HIGH_TOTAL)
+        N_HIGH_1 = int(N_high_res_total * (T_VOLATILE_1 / T_HIGH_TOTAL)) if T_HIGH_TOTAL > 0 else N_high_res_total
+        # Allocate N_HIGH_2 (Phase 3) as the remainder
+        N_HIGH_2 = N_high_res_total - N_HIGH_1
+        
+        # Sanity check: Ensure at least a minimal number of steps for the large sections
+        N_HIGH_1 = max(1, N_HIGH_1)
+        N_HIGH_2 = max(1, N_HIGH_2)
+        
+        # Recalculate resolutions based on new, regulated step counts
+        dt_high_1 = T_VOLATILE_1 / N_HIGH_1
+        dt_high_2 = T_VOLATILE_2 / N_HIGH_2
+
+        # --- 5. Determine Dynamic Time Points ---
+        
+        # Phase 1: First High-Resolution Zone (Starts at t_1)
+        T1_start = t_1 * 1.0e9
+        T1_end   = T1_start + T_VOLATILE_1
+        
+        # Phase 2: Low-Resolution Gap (Starts at T1_end and ends before T2_start)
+        # We start the second high-res zone *before* the onset t_2, using T_VOLATILE_2's duration.
+        T2_start = t_2 * 1.0e9 
+        T2_buffer = 0.1 * T_VOLATILE_2 # Start 10% of the duration before t_2
+        T2_HIGH_START = T2_start - T2_buffer 
+        
+        T_gap_1 = T2_HIGH_START - T1_end
+        
+        # --- 6. Construct the Final Custom dt_in Array ---
+
+        # Phase 1: High-Resolution Burst 1 (T1_start to T1_end)
+        dt_1 = np.ones(N_HIGH_1) * dt_high_1
+        T_mid_1 = T1_end
+        
+        # Phase 2: Low-Resolution Gap (T1_end to T2_HIGH_START)
+        # Handle cases where the gap is negative (bursts overlap)
+        if T_gap_1 <= 0 or T2_HIGH_START <= T1_end:
+            # If they overlap, skip the gap and re-allocate N_gap_1 to the final phase.
+            dt_2 = np.array([])
+            N_gap_1 = 0
+            T_mid_2 = T1_end
+            N_final_low_adjustment = N_low_res
+        else:
+            # Normal Gap calculation
+            N_gap_1 = int(N_low_res * (T_gap_1 / (T_total - T_HIGH_TOTAL)))
+            N_gap_1 = max(1, N_gap_1) # Ensure at least one step if time > 0
+            dt_gap_1 = T_gap_1 / N_gap_1
+            dt_2 = np.ones(N_gap_1) * dt_gap_1
+            T_mid_2 = T2_HIGH_START
+            N_final_low_adjustment = N_low_res - N_gap_1
+
+        # Phase 3: Second High-Resolution Zone (T2_HIGH_START to T2_end)
+        T2_HIGH_END = T2_start + T_VOLATILE_2 - T2_buffer # End of high-res for burst 2
+        
+        dt_3 = np.ones(N_HIGH_2) * dt_high_2
+        T_mid_3 = T2_HIGH_END
+        
+        # Phase 4: Final Low-Resolution Tail (T2_HIGH_END to T_total)
+        N_final_low = N_total - N_HIGH_1 - N_gap_1 - N_HIGH_2
+        
+        # Account for any steps lost/gained in overlap cases
+        if 'N_final_low_adjustment' in locals():
+            N_final_low = N_final_low_adjustment + (N_total - N_high_res_total - N_gap_1 - N_HIGH_1 - N_HIGH_2)
+
+        T_final_low = T_total - T_mid_3
+        
+        # Final safety checks before array creation
+        N_final_low = max(1, N_final_low) if T_final_low > 1e6 else 0
+        T_final_low = max(0, T_final_low)
+        dt_final = T_final_low / N_final_low if N_final_low > 0 else 50.0e6
+        dt_4 = np.ones(N_final_low) * dt_final
+        
+        
+        custom_dt_in_list = [dt_1, dt_2, dt_3, dt_4]
+        custom_dt_in = np.concatenate([arr for arr in custom_dt_in_list if arr.size > 0])
+        
+        # --- FINAL SANITY CHECK ON ARRAY SIZE ---
+        # Ensure array size is correct (by either taking the start or end of the array to match N_total)
+        if len(custom_dt_in) != N_total:
+             N_diff = N_total - len(custom_dt_in)
+             
+             if N_diff > 0: # If we need to add steps
+                 dt_add = np.ones(N_diff) * dt_final
+                 custom_dt_in = np.concatenate([custom_dt_in, dt_add])
+             else: # If we need to cut steps
+                 custom_dt_in = custom_dt_in[:N_total]
+
+
         # GCE Model kwargs
         kwargs = {
-            'special_timesteps': self.timesteps,
+
+            #'special_timesteps': self.timesteps,
+            #'dt': 1.0e6,  # 1 Myr base step
+
+            'special_timesteps': N_total,  # Total number of steps is 500
+            'dt_in': custom_dt_in,         # Pass the custom array of step durations
+            'tend': T_total,               # Ensure the total age is set
+            
             'twoinfall_sigmas': [1300, sigma_2],
             'galradius': 1800,
             'exp_infall':[[A1, t_1*1e9, infall_1*1e9], [A2, t_2*1e9, infall_2*1e9]],            
-            'dt': 1.0e6,  # 1 Myr base step
             'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
             'tolerance': 1e-6,          # tighten to 5e-6 or 1e-6 only if artefacts persist
             'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],  # gentle finite rise
