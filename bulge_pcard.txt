@@ -139,20 +139,29 @@ obs_age_data_target: 'joyce'
 mdf_vs_age_weight: 1.0
 
 ############################################################
+# sigma_2_list — mass ratio of the second to the first infall
 #
-# Sigma 2 list: Controls the ratio of second to first infall rates.
-# sigma_2 = c2/c1 (equations 5 and 6 in Spitoni et al. 2019)
-# 
-# Two scenarios: 
-# - one-infall model: sigma_2 = 1e9 to suppress first infall entirely
-# - two-infall model: sweep sigma_2 between reasonable values
+# In this OMEGA+ setup (exp_infall with A1=A2 = -1), the tuple
+#   twoinfall_sigmas = [Sigma_tot, sigma_2]
+# splits the total accreted mass M_tot into two episodes:
+#   M1 = M_tot / (1 + sigma_2)
+#   M2 = sigma_2 * M1
+# Special cases you may emulate:
+#   • First-infall only (single early burst):  sigma_2 = 0.0
+#   • Second-infall only (single late burst):  sigma_2 >> 1 (e.g., 1e9)
 #
-# Setting the ratio to be outrageous (1e9) suppresses the first infall entirely
-# Justification: Ratio 0.5-20 covers weak (bulge-dominated, ratio <1) to strong (disk-like, ratio >1) second infall; extended upper to 20 for gradual accretion in extended models.
-# Contentious: High ratios (>10) may over-dilute metals, but tested in recent simulations; typical bulge ratios 1-5, but up to 20 allows exploration of extreme dilution scenarios.
-# References: Chiappini et al. (2001, ApJ, 554, 1044) for ratios 1-10 in two-infall models; Spitoni et al. (2019, A&A, 632, A58) for 0.5-5 in bulge/disk transitions; Matteucci et al. (2024, A&A, 687, A11) for variable ratios up to ~20 in multi-population bulge evolution; Grisoni et al. (2020, MNRAS, 492, 2828) confirming 2-10 for chemical gradients.
+# Practical sweep for the bulge two-infall model:
+#   Use 0.1–10.0 (log-spaced is sensible).  <1 favors a larger first
+#   infall; >1 favors a larger second infall. Very large values can
+#   over-dilute metals and are usually disfavored by the fit.
+#
+# Notes:
+#   • Dimensionless. Takes effect only when A1=A2=-1 (auto-normalization).
+#   • Ensure Sigma_tot and galradius imply a total accreted mass
+#     consistent with your mgal prior.
 ############################################################
 sigma_2_list: [0.1, 10.0]
+
 
 ############################################################
 #
@@ -357,7 +366,7 @@ sn1a_rates: ['power_law','gauss','exp']
 # Justification: Increased to 500 for finer resolution in rapid bulge phases; balances accuracy and speed.
 # References: Cote et al. (2016, ApJ, 825, 126) for OMEGA timestep convergence ~100-1000.
 ############################################################
-timesteps: 100
+timesteps: 500
 
 ############################################################
 #

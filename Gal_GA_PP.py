@@ -1025,7 +1025,7 @@ class GalacticEvolutionGA:
             'dt': 1.0e6,  # 1 Myr base step
             'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
             'tolerance': 1e-6,          # tighten to 5e-6 or 1e-6 only if artefacts persist
-            'tauup': [0.3*infall_1*1e9, 0.3*infall_2*1e9],  # gentle finite rise
+            'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],  # gentle finite rise
             'mgal': mgal,
             'iniZ': 0.0,
             'mass_loading': 0.0,
