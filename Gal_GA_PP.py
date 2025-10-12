@@ -15,6 +15,7 @@ sys.path.append('../')
 
 import gc
 from scipy.interpolate import CubicSpline
+from scipy.interpolate import PchipInterpolator
 from matplotlib import cm
 from matplotlib.lines import *
 from matplotlib.patches import *
@@ -334,7 +335,7 @@ class GalacticEvolutionGA:
         print()
 
         print("PARAMETER RANGES (CONTINUOUS / NUMERIC LISTS)")
-        print(_summarize("sigma_2_list (pc)", sigma_2_list))
+        print(_summarize("sigma_2_list ", sigma_2_list))
         print(_summarize("tmax_1_list (Gyr)", tmax_1_list))
         print(_summarize("tmax_2_list (Gyr)", tmax_2_list))
         print(_summarize("infall_timescale_1_list (Gyr)", infall_timescale_1_list))
@@ -391,7 +392,7 @@ class GalacticEvolutionGA:
 
         print("DERIVED / SANITY CHECKS")
         print(f"t2_range (Gyr): [{self.t_2_min}, {self.t_2_max}]")
-        print(f"sigma2_range (pc): [{self.sigma_2_min}, {self.sigma_2_max}]")
+        print(f"sigma2_range : [{self.sigma_2_min}, {self.sigma_2_max}]")
         print(f"infall2_timescale_range (Gyr): [{self.infall_2_min}, {self.infall_2_max}]")
         try:
             total_cont_dims = 10
@@ -425,12 +426,8 @@ class GalacticEvolutionGA:
         toolbox.register("sn1a_rate_attr", lambda: random.randint(0, len(self.sn1a_rates) - 1))
                 
 
-        # Continuous parameters
-        # sigma_2
-        if should_use_log(min(self.sigma_2_list), max(self.sigma_2_list)):
-            toolbox.register("sigma_2_attr", log_uniform, min(self.sigma_2_list), max(self.sigma_2_list))
-        else:
-            toolbox.register("sigma_2_attr", random.uniform, min(self.sigma_2_list), max(self.sigma_2_list))
+        #toolbox.register("sigma_2_attr", random.uniform, min(self.sigma_2_list), max(self.sigma_2_list))
+        toolbox.register("sigma_2_attr", log_uniform, min(self.sigma_2_list), max(self.sigma_2_list))
 
         # t_1
         if should_use_log(min(self.tmax_1_list), max(self.tmax_1_list)):
@@ -1025,7 +1022,10 @@ class GalacticEvolutionGA:
             'twoinfall_sigmas': [1300, sigma_2],
             'galradius': 1800,
             'exp_infall':[[A1, t_1*1e9, infall_1*1e9], [A2, t_2*1e9, infall_2*1e9]],            
-            'tauup': [0.02e9, 0.02e9],
+            'dt': 1.0e6,  # 1 Myr base step
+            'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
+            'tolerance': 1e-6,          # tighten to 5e-6 or 1e-6 only if artefacts persist
+            'tauup': [0.3*infall_1*1e9, 0.3*infall_2*1e9],  # gentle finite rise
             'mgal': mgal,
             'iniZ': 0.0,
             'mass_loading': 0.0,
@@ -1060,9 +1060,31 @@ class GalacticEvolutionGA:
 
         # Evaluate the spline at the same [Fe/H] grid as your data
         cs_MDF = CubicSpline(MDF_x_data, MDF_y_data)
-        fmin, fmax = MDF_x_data.min(), MDF_x_data.max()
+        #fmin, fmax = MDF_x_data.min(), MDF_x_data.max()
+        #feh_clamped = np.clip(self.feh, fmin, fmax)
+        #theory_count_array = cs_MDF(feh_clamped)
+
+
+
+        # Sort (safety), clamp, interpolate without overshoot
+        order = np.argsort(MDF_x_data)
+        x = np.asarray(MDF_x_data)[order]
+        y = np.clip(np.asarray(MDF_y_data)[order], 0, None)    # no negatives
+
+        interp = PchipInterpolator(x, y, extrapolate=False)
+
+        fmin, fmax = x[0], x[-1]
         feh_clamped = np.clip(self.feh, fmin, fmax)
-        theory_count_array = cs_MDF(feh_clamped)
+
+        theory = interp(feh_clamped)
+        theory = np.clip(theory, 0, None)
+
+        # match the observational normalization convention (your data are count/max)
+        m = theory.max()
+        theory_count_array = theory / m #if m > 0 else theory
+
+
+
 
         # Compare with the observed distribution
         ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh = calculate_all_metrics(self, theory_count_array)
