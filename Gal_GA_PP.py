@@ -1133,12 +1133,12 @@ class GalacticEvolutionGA:
         # GCE Model kwargs
         kwargs = {
 
-            #'special_timesteps': self.timesteps,
-            #'dt': 1.0e6,  # 1 Myr base step
+            'special_timesteps': self.timesteps,
+            'dt': 1.0e6,  # 1 Myr base step
 
-            'special_timesteps': N_total,  # Total number of steps is 500
-            'dt_in': custom_dt_in,         # Pass the custom array of step durations
-            'tend': T_total,               # Ensure the total age is set
+            #'special_timesteps': N_total,  # Total number of steps is 500
+            #'dt_in': custom_dt_in,         # Pass the custom array of step durations
+            #'tend': T_total,               # Ensure the total age is set
             
             'twoinfall_sigmas': [1300, sigma_2],
             'galradius': 1800,

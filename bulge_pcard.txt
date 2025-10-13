@@ -30,7 +30,7 @@ iniab_header: 'yield_tables/iniabu/'
 # References: Kobayashi et al. (2020, ApJ, 900, 179) for metallicity-dependent SN Ia in GCE.
 sn1a_header: 'yield_tables/'
 
-output_path: 'bc_batch_local_100_MDF/'
+output_path: 'bc_batch_nu_test/'
 seed: -1
 ##################yeah ##########################################
 #
@@ -42,7 +42,7 @@ seed: -1
 # - each of those gets evaluated only if crossover/mutation occurs
 # No major changes here; values based on standard GA tuning for convergence in ~100-1000 evaluations.
 # References: De Jong (1975, PhD thesis) for classic params; recent: Leclercq (2019, A&A, 624, A60) for astro optimization.
-# Contentious: High popsize risks compute cost; low generations may miss global min—balance tested empirically.
+# Contentious: High popsize risks compute cost; low generations may miss global minâ€”balance tested empirically.
 ############################################################
 
 # Population size of the genetic algorithm. 
@@ -50,9 +50,9 @@ seed: -1
 # NB - this is not the number of evaluations as evaluations are only made if a crossover or/and mutation has been done to the individual
 # Justification: 128 allows diversity while feasible computationally; scales with param dimensions (~15 here).
 # References: Goldberg (1989, Genetic Algorithms book) for popsize ~100-200 in complex spaces.
-popsize:-1
+popsize:4
 
-demc_fraction:0.4
+demc_fraction:0.6
 # How many generations (/epochs) are performed. 
 # Justification: 128 ensures ~16k evaluations; sufficient for convergence in 10-20 dim spaces.
 # References: Whitley (1994, Foundations of Genetic Algorithms) for generation scaling.
@@ -60,7 +60,7 @@ generations: 128
 
 # Interval (in generations) at which full results and plots are generated
 # Set to a positive integer to enable periodic output
-output_interval: 8
+output_interval: 1
 
 # Probability an individual will make babies. 
 # Justification: 0.5 promotes mixing without excessive randomness.
@@ -121,7 +121,7 @@ perturbation_strength: 0.2
 
 # Frequency of applying physical constraints (every N evaluations)
 # Justification: Every 3 balances efficiency and realism.
-physical_constraints_freq: 0
+physical_constraints_freq: 1
 
 # Loss metric for age-metallicity relation fitting
 # Available options: 'mae', 'rmse', 'weighted_mae', 'weighted_rmse', 'huber_loss', 
@@ -139,7 +139,7 @@ obs_age_data_target: 'joyce'
 mdf_vs_age_weight: 1.0
 
 ############################################################
-# sigma_2_list — mass ratio of the second to the first infall
+# sigma_2_list â€” mass ratio of the second to the first infall
 #
 # In this OMEGA+ setup (exp_infall with A1=A2 = -1), the tuple
 #   twoinfall_sigmas = [Sigma_tot, sigma_2]
@@ -147,20 +147,20 @@ mdf_vs_age_weight: 1.0
 #   M1 = M_tot / (1 + sigma_2)
 #   M2 = sigma_2 * M1
 # Special cases you may emulate:
-#   • First-infall only (single early burst):  sigma_2 = 0.0
-#   • Second-infall only (single late burst):  sigma_2 >> 1 (e.g., 1e9)
+#   â€¢ First-infall only (single early burst):  sigma_2 = 0.0
+#   â€¢ Second-infall only (single late burst):  sigma_2 >> 1 (e.g., 1e9)
 #
 # Practical sweep for the bulge two-infall model:
-#   Use 0.1–10.0 (log-spaced is sensible).  <1 favors a larger first
+#   Use 0.1â€“10.0 (log-spaced is sensible).  <1 favors a larger first
 #   infall; >1 favors a larger second infall. Very large values can
 #   over-dilute metals and are usually disfavored by the fit.
 #
 # Notes:
-#   • Dimensionless. Takes effect only when A1=A2=-1 (auto-normalization).
-#   • Ensure Sigma_tot and galradius imply a total accreted mass
+#   â€¢ Dimensionless. Takes effect only when A1=A2=-1 (auto-normalization).
+#   â€¢ Ensure Sigma_tot and galradius imply a total accreted mass
 #     consistent with your mgal prior.
 ############################################################
-sigma_2_list: [0.1, 10.0]
+sigma_2_list: [0.1, 5.0]
 
 
 ############################################################
@@ -182,7 +182,7 @@ sigma_2_list: [0.1, 10.0]
 tmax_1_list: [0.005, 0.1] # for two infall scenario, sweep
 
 # Justification for tmax_2: 0.1-10.0 Gyr for delayed second infall matching observed bulge age spreads (2-10 Gyr) and bimodal populations; reduced upper from 15 to 10 as late delays (>10 Gyr) unlikely for bulge enrichment, focusing on plausible merger/dilution timings.
-# Contentious: Long delays (>8 Gyr) may underproduce metal-rich stars, debated in clumpy vs. secular evolution; typical 1-5 Gyr for "knee" in [α/Fe].
+# Contentious: Long delays (>8 Gyr) may underproduce metal-rich stars, debated in clumpy vs. secular evolution; typical 1-5 Gyr for "knee" in [Î±/Fe].
 # References: Chiappini et al. (2001, ApJ, 554, 1044) for ~4 Gyr delay; Valenti et al. (2016, A&A, 587, L6) for age spreads implying 0.1-12 Gyr, but up to 10 in models; Grisoni et al. (2017) for 0.1-8 Gyr; Matteucci et al. (2024, A&A, 687, A11) for 2-6 Gyr in multi-pop bulge.
 tmax_2_list: [0.1, 10.0]
 
@@ -201,7 +201,7 @@ tmax_2_list: [0.1, 10.0]
 # Contentious: Very short (<0.001 Gyr) unphysical as it implies instantaneous collapse; 0.01-0.1 Gyr more common to avoid over-enrichment spikes.
 # References: Matteucci et al. (2021, A&A, 653, A72) for ~0.1 Gyr tau1; Chiappini et al. (2001, ApJ, 554, 1044) for fast <0.01 Gyr; Spitoni et al. (2019, A&A, 632, A58) for 0.001-0.1 Gyr in bulge phase; Grisoni et al. (2020, MNRAS, 492, 2828) confirming short tau1 for alpha knee.
 ############################################################
-infall_timescale_1_list: [0.0001, 0.1] # fix for single infall model; sweep otherwise
+infall_timescale_1_list: [0.001, 0.1] # fix for single infall model; sweep otherwise
 
 # Justification for infall_timescale_2: 1.0-10.0 Gyr for slower second phase mimicking disk accretion and dilution; focused range to match disk formation without excessive late infall.
 # Contentious: Long tau2 (>10 Gyr) may cause under-enrichment or flat MDF; shorter (1-5 Gyr) preferred for bulge-disk transition, but up to 10 allows testing extended feeding.
@@ -240,11 +240,11 @@ comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_outp
 # Contentious: High SFE (>0.5) debated for sustained periods (leads to rapid depletion), but observed in starbursts; typical bulge ~0.02-0.2.
 # References: Leroy et al. (2013, AJ, 146, 19) for 0.01-1 in dense environments; Bigiel et al. (2008, AJ, 136, 2846) 0.002-0.1; Kennicutt et al. (2021, ARA&A, 59, 319) up to 10 in bursts, but ~1 for bulges; Grisoni et al. (2020, MNRAS, 492, 2828) ~0.02 for bulge.
 ############################################################
-sfe_array: [1.0, 30.0]
+sfe_array: [1.0, 20.0]
 
 # Justification for delta_sfe: -0.5 to 1.0 allows moderate quenching (-0.5) or burst (+1.0) at second infall; expanded negative for post-merger dilution scenarios.
 # Contentious: Negative delta (decrease) debated vs. positive (increase) in two-infall; range covers quenching in secular evolution.
-# References: Spitoni et al. (2019, A&A, 632, A58) for Δ~0.5-2 increases; Chiappini et al. (2001) variations 0-2; Matteucci et al. (2024) potential decreases ~ -0.5 for dilution; Grisoni et al. (2020) Δ~0-1.
+# References: Spitoni et al. (2019, A&A, 632, A58) for Î”~0.5-2 increases; Chiappini et al. (2001) variations 0-2; Matteucci et al. (2024) potential decreases ~ -0.5 for dilution; Grisoni et al. (2020) Î”~0-1.
 delta_sfe_array: [0.01, 0.85]
 
 ############################################################
@@ -269,7 +269,7 @@ imf_array: ['salpeter', 'chabrier', 'kroupa']
 # We ignore the yields of any stars above this mass limit
 # Justification: 40-150 M_sun brackets limits; extended to 150 per observations of very massive stars in clusters.
 # Contentious: >120 M_sun debated (pair-instability limit), but evidence for ~150; lower ~40 for metal-rich suppression.
-# References: Weidner et al. (2013, MNRAS, 434, 84) 30-150; Figer (2005, Nature, 434, 192) ~150 cutoff; Maíz Apellániz et al. (2007, A&A, 464, 83) 100-200 variations; Limongi & Chieffi (2018, ApJS, 237, 13) yields up to 120.
+# References: Weidner et al. (2013, MNRAS, 434, 84) 30-150; Figer (2005, Nature, 434, 192) ~150 cutoff; MaÃ­z ApellÃ¡niz et al. (2007, A&A, 464, 83) 100-200 variations; Limongi & Chieffi (2018, ApJS, 237, 13) yields up to 120.
 ############################################################
 imf_upper_limits: [60, 130]  # Allow more massive stars
 
@@ -315,10 +315,10 @@ stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_R150.txt', 'agb_and_
 #
 # As reviewed elsewhere (e.g., paper by Gerhard), 
 # the mass of the Galactic bulge is rather poorly constrained. 
-# Most determinations cluster close to 1.5 × 10^10 M⊙, 
+# Most determinations cluster close to 1.5 Ã— 10^10 MâŠ™, 
 # although a few authors find values as large 
-# as 2 × 10^10 M⊙ (Valenti et al. 2015) 
-# or as small as 6 × 10^9 M⊙ (Robin et al. 2012).
+# as 2 Ã— 10^10 MâŠ™ (Valenti et al. 2015) 
+# or as small as 6 Ã— 10^9 MâŠ™ (Robin et al. 2012).
 #
 # Bounded by 3e10 strictly -- doesn't get added to dict above this
 # Below ~1e8 effects are minimal
@@ -366,7 +366,7 @@ sn1a_rates: ['power_law','gauss','exp']
 # Justification: Increased to 500 for finer resolution in rapid bulge phases; balances accuracy and speed.
 # References: Cote et al. (2016, ApJ, 825, 126) for OMEGA timestep convergence ~100-1000.
 ############################################################
-timesteps: 500
+timesteps: 100
 
 ############################################################
 #
@@ -386,7 +386,7 @@ timesteps: 500
 #
 # For each infall episode, exp_infall --> [Norm, t_max, timescale]
 # 'exp_infall':[[-1, 0.1e9, 0.1e9], [A2, t_2*1e9, infall_2*1e9]]
-# Justification: A1=-1 for auto-normalization to target mass; A2=1 as relative scale—unchanged but noted for two-infall balance.
+# Justification: A1=-1 for auto-normalization to target mass; A2=1 as relative scaleâ€”unchanged but noted for two-infall balance.
 # Contentious: Fixed A2=1 assumes equal normalization; variable A2 (0.5-2) could test mass ratios, but kept simple.
 # References: Spitoni et al. (2019) for A2/A1 ~1-5; Chiappini et al. (2001) for normalization in equations.
 ############################################################
