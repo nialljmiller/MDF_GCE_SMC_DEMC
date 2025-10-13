@@ -1018,8 +1018,8 @@ class GalacticEvolutionGA:
 
 
         # --- 1. Define Total Timesteps and Max Age (from self) ---
-        N_total = self.timesteps # 500
-        T_total = 13.0e9          # 13.0 Gyr in years (from pcard)
+        N_total = self.timesteps
+        T_total = 13.0e9        
         
         # Infall Timescales (converted to seconds)
         tau_1_sec = infall_1 * 1.0e9
@@ -1144,7 +1144,7 @@ class GalacticEvolutionGA:
             'galradius': 1800,
             'exp_infall':[[A1, t_1*1e9, infall_1*1e9], [A2, t_2*1e9, infall_2*1e9]],            
             'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
-            'tolerance': 1e-6,          # tighten to 5e-6 or 1e-6 only if artefacts persist
+            'tolerance': 1e-5,          # tighten to 5e-6 or 1e-6 only if artefacts persist
             'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],  # gentle finite rise
             'mgal': mgal,
             'iniZ': 0.0,

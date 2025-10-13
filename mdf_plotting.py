@@ -368,6 +368,11 @@ def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=No
             if idx < len(alpha_arrs):
                 x_data = np.array(alpha_arrs[idx][0])
                 y_data = np.array(alpha_arrs[idx][1])
+
+                x_data, y_data = smooth_alpha_track_time_ordered(x_data, y_data, sigma=3)
+
+
+
                 if all(abs(p - b) < 1e-5 for p, b in zip(params, best_params)):
                     ax_main.plot(x_data, y_data, color="red", linewidth=2.5, zorder=3)
                 else:
@@ -892,6 +897,25 @@ def plot_omni_figure(
 
 
 
+from scipy.ndimage import gaussian_filter1d
+
+def smooth_alpha_track_time_ordered(x_data, y_data, sigma=5):
+    """
+    Smooths the alpha track in time order (sequential order) to eliminate
+    numerical noise while preserving the path's loops and non-monotonicity.
+    """
+    mask = np.isfinite(x_data) & np.isfinite(y_data)
+    x, y = x_data[mask], y_data[mask]
+    
+    if len(x) < 10:
+        return x_data, y_data # Not enough data
+
+    # Apply Gaussian smoothing to X (Fe/H) and Y (Alpha/Fe) separately,
+    # treating the array index (time order) as the axis.
+    x_smoothed = gaussian_filter1d(x, sigma=sigma, mode='nearest')
+    y_smoothed = gaussian_filter1d(y, sigma=sigma, mode='nearest')
+    
+    return x_smoothed, y_smoothed
 
 
 
