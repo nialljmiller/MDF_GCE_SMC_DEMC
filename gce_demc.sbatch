@@ -25,4 +25,11 @@ FILE_PATH=''
 
 unset SLURM_MEM_PER_CPU SLURM_MEM_PER_GPU SLURM_MEM_PER_NODE
 
+
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
+
+
 srun --cpu-bind=cores -n 1 python MDF_SMC_DEMC_Launcher.py "$FILE_PATH"

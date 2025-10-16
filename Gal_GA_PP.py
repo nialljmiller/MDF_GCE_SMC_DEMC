@@ -1017,148 +1017,148 @@ class GalacticEvolutionGA:
         iniab_header = self.iniab_header
 
 
-        # --- 1. Define Total Timesteps and Max Age (from self) ---
+        # --- deterministic, repair-first dt_in builder ---
         N_total = self.timesteps
-        T_total = 13.0e9        
-        
-        # Infall Timescales (converted to seconds)
-        tau_1_sec = infall_1 * 1.0e9
-        tau_2_sec = infall_2 * 1.0e9
-        
-        # --- 2. Dynamic Timestep Budget Allocation (60/40 Split) ---
-        N_high_res_total = int(N_total * 0.60) # 300 steps
-        N_low_res        = N_total - N_high_res_total # 200 steps
+        T_total = 13.0e9  # yr
 
-        # --- 3. Calculate Volatile Zone Durations (Physics-Driven) ---
-        
-        # T_Volatile_1: Duration of high-res zone 1, scaled by its decay timescale (tau_1)
-        # Use 3 * tau_1 to capture ~95% of the exponential decay time.
-        T_VOLATILE_1 = 3.0 * tau_1_sec
-        
-        # T_Volatile_2: Duration of high-res zone 2, scaled by its decay timescale (tau_2)
-        T_VOLATILE_2 = 3.0 * tau_2_sec
-        
-        # Total time span covered by high-resolution zones
-        T_HIGH_TOTAL = T_VOLATILE_1 + T_VOLATILE_2
+        t1 = t_1 * 1e9;   t2 = t_2 * 1e9
+        tau1 = max(infall_1 * 1e9, 1e4)  # avoid zeros
+        tau2 = max(infall_2 * 1e9, 1e4)
 
-        # --- 4. Allocate Steps Based on Time Ratios within the 60% Budget ---
-        
-        # Allocate N_HIGH_1 (Phase 1) based on its time fraction (T_VOLATILE_1 / T_HIGH_TOTAL)
-        N_HIGH_1 = int(N_high_res_total * (T_VOLATILE_1 / T_HIGH_TOTAL)) if T_HIGH_TOTAL > 0 else N_high_res_total
-        # Allocate N_HIGH_2 (Phase 3) as the remainder
-        N_HIGH_2 = N_high_res_total - N_HIGH_1
-        
-        # Sanity check: Ensure at least a minimal number of steps for the large sections
-        N_HIGH_1 = max(1, N_HIGH_1)
-        N_HIGH_2 = max(1, N_HIGH_2)
-        
-        # Recalculate resolutions based on new, regulated step counts
-        dt_high_1 = T_VOLATILE_1 / N_HIGH_1
-        dt_high_2 = T_VOLATILE_2 / N_HIGH_2
+        # windows: [t_i - 0.2 τ_i, t_i + 3 τ_i], clamped to domain
+        w1_lo, w1_hi = max(0.0, t1 - 0.2*tau1), min(T_total, t1 + 3.0*tau1)
+        w2_lo, w2_hi = max(0.0, t2 - 0.2*tau2), min(T_total, t2 + 3.0*tau2)
 
-        # --- 5. Determine Dynamic Time Points ---
-        
-        # Phase 1: First High-Resolution Zone (Starts at t_1)
-        T1_start = t_1 * 1.0e9
-        T1_end   = T1_start + T_VOLATILE_1
-        
-        # Phase 2: Low-Resolution Gap (Starts at T1_end and ends before T2_start)
-        # We start the second high-res zone *before* the onset t_2, using T_VOLATILE_2's duration.
-        T2_start = t_2 * 1.0e9 
-        T2_buffer = 0.1 * T_VOLATILE_2 # Start 10% of the duration before t_2
-        T2_HIGH_START = T2_start - T2_buffer 
-        
-        T_gap_1 = T2_HIGH_START - T1_end
-        
-        # --- 6. Construct the Final Custom dt_in Array ---
+        # merge if they overlap
+        if w1_hi > w2_lo:
+            w2_lo, w2_hi = min(w1_lo, w2_lo), max(w1_hi, w2_hi)
+            w1_lo, w1_hi = 0.0, 0.0  # first window empty
 
-        # Phase 1: High-Resolution Burst 1 (T1_start to T1_end)
-        dt_1 = np.ones(N_HIGH_1) * dt_high_1
-        T_mid_1 = T1_end
-        
-        # Phase 2: Low-Resolution Gap (T1_end to T2_HIGH_START)
-        # Handle cases where the gap is negative (bursts overlap)
-        if T_gap_1 <= 0 or T2_HIGH_START <= T1_end:
-            # If they overlap, skip the gap and re-allocate N_gap_1 to the final phase.
-            dt_2 = np.array([])
-            N_gap_1 = 0
-            T_mid_2 = T1_end
-            N_final_low_adjustment = N_low_res
+        # segment caps
+        dt_min      = 2.0e6          # 2 Myr
+        cap_hi1     = min(0.1*tau1, 3.0e7)
+        cap_hi2     = min(0.1*tau2, 3.0e7)
+        cap_mid     = 1.5e8
+        cap_tail    = 2.5e8
+
+        # segments: [0,w1_lo],[w1_lo,w1_hi],[w1_hi,w2_lo],[w2_lo,w2_hi],[w2_hi,T_total]
+        segs = []
+        if w1_hi > w1_lo:
+            segs.append((0.0,    w1_lo, 'mid',  0.05))
+            segs.append((w1_lo,  w1_hi, 'hi1',  None))
         else:
-            # Normal Gap calculation
-            N_gap_1 = int(N_low_res * (T_gap_1 / (T_total - T_HIGH_TOTAL)))
-            N_gap_1 = max(1, N_gap_1) # Ensure at least one step if time > 0
-            dt_gap_1 = T_gap_1 / N_gap_1
-            dt_2 = np.ones(N_gap_1) * dt_gap_1
-            T_mid_2 = T2_HIGH_START
-            N_final_low_adjustment = N_low_res - N_gap_1
+            segs.append((0.0,    w2_lo, 'mid',  0.10))
+        segs.append((w1_hi, w2_lo, 'mid', 0.15))
+        if w2_hi > w2_lo:
+            segs.append((w2_lo,  w2_hi, 'hi2',  None))
+        segs.append((w2_hi, T_total,'tail',0.30))
 
-        # Phase 3: Second High-Resolution Zone (T2_HIGH_START to T2_end)
-        T2_HIGH_END = T2_start + T_VOLATILE_2 - T2_buffer # End of high-res for burst 2
-        
-        dt_3 = np.ones(N_HIGH_2) * dt_high_2
-        T_mid_3 = T2_HIGH_END
-        
-        # Phase 4: Final Low-Resolution Tail (T2_HIGH_END to T_total)
-        N_final_low = N_total - N_HIGH_1 - N_gap_1 - N_HIGH_2
-        
-        # Account for any steps lost/gained in overlap cases
-        if 'N_final_low_adjustment' in locals():
-            N_final_low = N_final_low_adjustment + (N_total - N_high_res_total - N_gap_1 - N_HIGH_1 - N_HIGH_2)
+        # choose per-segment caps
+        def cap_for(kind):
+            return {'hi1':cap_hi1, 'hi2':cap_hi2, 'mid':cap_mid, 'tail':cap_tail}[kind]
 
-        T_final_low = T_total - T_mid_3
-        
-        # Final safety checks before array creation
-        N_final_low = max(1, N_final_low) if T_final_low > 1e6 else 0
-        T_final_low = max(0, T_final_low)
-        dt_final = T_final_low / N_final_low if N_final_low > 0 else 50.0e6
-        dt_4 = np.ones(N_final_low) * dt_final
-        
-        
-        custom_dt_in_list = [dt_1, dt_2, dt_3, dt_4]
-        custom_dt_in = np.concatenate([arr for arr in custom_dt_in_list if arr.size > 0])
-        
-        # --- FINAL SANITY CHECK ON ARRAY SIZE ---
-        # Ensure array size is correct (by either taking the start or end of the array to match N_total)
-        if len(custom_dt_in) != N_total:
-             N_diff = N_total - len(custom_dt_in)
-             
-             if N_diff > 0: # If we need to add steps
-                 dt_add = np.ones(N_diff) * dt_final
-                 custom_dt_in = np.concatenate([custom_dt_in, dt_add])
-             else: # If we need to cut steps
-                 custom_dt_in = custom_dt_in[:N_total]
+        # initial integer allocation that WILL sum to N_total
+        # rule: ≥30 steps in each hi window (if present); distribute the rest by duration
+        N = []
+        duration_total = sum(max(0.0, t1 - t0) for (t0,t1,_,_) in segs)
+        baseline = N_total
+
+        # reserve hi-window minima first
+        hi_min = 0
+        for (t0,t1,kind,_) in segs:
+            dur = max(0.0, t1 - t0)
+            if kind in ('hi1','hi2') and dur > 0:
+                N.append(30); hi_min += 30; baseline -= 30
+            else:
+                N.append(0)
+
+        # distribute the remaining steps proportionally by duration (rounded)
+        if baseline < 0: baseline = 0
+        durs = [max(0.0, t1 - t0) for (t0,t1,_,_) in segs]
+        weights = [(d/duration_total if duration_total>0 else 0.0) for d in durs]
+        extra = [int(round(baseline*w)) for w in weights]
+        # fix rounding drift to hit exactly N_total
+        drift = (hi_min + sum(extra)) - N_total
+        # adjust extras by subtracting/adding 1 where it hurts least
+        idxs = sorted(range(len(extra)), key=lambda i: durs[i], reverse=(drift>0))
+        for i in idxs:
+            if drift == 0: break
+            if drift > 0 and extra[i] > 0:
+                extra[i] -= 1; drift -= 1
+            elif drift < 0:
+                extra[i] += 1; drift += 1
+
+        # final per-segment counts
+        for i in range(len(N)):
+            N[i] += extra[i]
+            # ensure at least 1 if segment has duration
+            if durs[i] > 0 and N[i] < 1: N[i] = 1
+
+        # now build dt for each segment with cap/floor, then renormalize each segment to its exact duration
+        parts = []
+        for (t0,t1,kind,_), n in zip(segs, N):
+            dur = max(0.0, t1 - t0)
+            if dur == 0.0 or n == 0:
+                continue
+            cap = cap_for(kind)
+            raw = np.full(n, max(dt_min, min(cap, dur/max(1,n))), float)
+            # sum(raw) may not equal dur; rescale uniformly to match exactly
+            scale = dur / raw.sum()
+            raw *= scale
+            # after rescale, enforce dt_min by borrowing uniformly from larger bins
+            below = raw < dt_min
+            if below.any():
+                deficit = dt_min*below.sum() - raw[below].sum()
+                raw[below] = dt_min
+                # take evenly from non-below bins
+                nb = (~below).sum()
+                if nb > 0:
+                    raw[~below] -= deficit/nb
+                # if any went sub-min due to borrow, clip and renormalize again
+                raw = np.clip(raw, dt_min, None)
+                raw *= dur / raw.sum()
+            parts.append(raw)
+
+        custom_dt_in = np.concatenate(parts)
+
+        # final rounding repair to hit N_total exactly (rare off-by-one)
+        if len(custom_dt_in) > N_total:
+            # merge the last few tiny bins
+            extra = len(custom_dt_in) - N_total
+            custom_dt_in[-(extra+1)] += custom_dt_in[-extra:].sum()
+            custom_dt_in = custom_dt_in[:N_total]
+        elif len(custom_dt_in) < N_total:
+            pad = np.full(N_total-len(custom_dt_in), custom_dt_in[-1], float)
+            custom_dt_in = np.concatenate([custom_dt_in, pad])
+
+        # final guarantee: exact sum & no micro last-bin
+        custom_dt_in *= (T_total / custom_dt_in.sum())
+        if custom_dt_in[-1] < dt_min and len(custom_dt_in) > 1:
+            custom_dt_in[-2] += custom_dt_in[-1] - dt_min
+            custom_dt_in[-1]  = dt_min
 
 
-        # GCE Model kwargs
         kwargs = {
-
-            'special_timesteps': self.timesteps,
-            'dt': 1.0e6,  # 1 Myr base step
-
-            #'special_timesteps': N_total,  # Total number of steps is 500
-            #'dt_in': custom_dt_in,         # Pass the custom array of step durations
-            #'tend': T_total,               # Ensure the total age is set
-            
+            'special_timesteps': len(custom_dt_in),
+            'dt_in': custom_dt_in,
+            'tend': float(custom_dt_in.sum()),
             'twoinfall_sigmas': [1300, sigma_2],
             'galradius': 1800,
-            'exp_infall':[[A1, t_1*1e9, infall_1*1e9], [A2, t_2*1e9, infall_2*1e9]],            
+            'exp_infall': [[A1, t_1*1e9, infall_1*1e9],
+                           [A2, t_2*1e9, infall_2*1e9]],
             'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
-            'tolerance': 1e-5,          # tighten to 5e-6 or 1e-6 only if artefacts persist
-            'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],  # gentle finite rise
-            'mgal': mgal,
-            'iniZ': 0.0,
-            'mass_loading': 0.0,
+            'tolerance': 1e-5,
+            'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],
+            'mgal': mgal, 'iniZ': 0.0, 'mass_loading': 0.0,
             'table': sn1a_header + sy,
-            'sfe': sfe_val,
-            'delta_sfe': delta_sfe_val,
+            'sfe': sfe_val, 'delta_sfe': delta_sfe_val,
             'imf_type': imf_val,
             'sn1a_table': sn1a_header + sn1a,
             'imf_yields_range': [1, imf_upper],
             'iniabu_table': iniab_header + comp,
-            'nb_1a_per_m': nb,
-            'sn1a_rate': sn1ar
+            'nb_1a_per_m': nb, 'sn1a_rate': sn1ar
         }
+
 
         # Run GCE model and compute MDF
         GCE_model = omega_plus.omega_plus(**kwargs)
@@ -1433,8 +1433,16 @@ class GalacticEvolutionGA:
                     samples.to_numpy(),
                     labels=corner_labels,
                     show_titles=True,
-                    quantiles=[0.16, 0.5, 0.84],
                     title_fmt=".3f",
+                    quantiles=[0.16, 0.50, 0.84],
+                    color="black",
+                    plot_datapoints=False,
+                    fill_contours=True,
+                    hist_kwargs={"histtype": "stepfilled", "alpha": 0.35, "edgecolor": "black"},
+                    contour_kwargs={"linewidths": 1.0},
+                    contourf_kwargs={"cmap": "Greys"},   # grayscale fills, darker in the center
+                    label_kwargs={"fontsize": 12},
+                    title_kwargs={"fontsize": 11},
                 )
             except Exception as exc:
                 print(f"[smc-demc] corner plot failed: {exc}")
@@ -1734,10 +1742,8 @@ class GalacticEvolutionGA:
         df.to_csv(results_file, index=False)
         print(f"Results saved to: {results_file}")
 
-        try:
-            mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
-        except:
-            pass
+        mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
+
 
 
 
