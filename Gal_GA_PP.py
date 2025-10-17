@@ -934,7 +934,8 @@ class GalacticEvolutionGA:
         import gc, time
         import multiprocessing as mp
         from multiprocessing import Pool, cpu_count
-
+        from multiprocessing import get_context
+        
         total_eval_time = 0
         total_eval_steps = 0
         total_start_time = time.time()
