@@ -36,6 +36,21 @@ from explore_dearth import voronoi_explore_dearths
 import ast
 from age_meta import age_meta_loss, test_age_meta_loss_function
 
+
+
+def alloc_cores():
+    import os
+    try:
+        # exact count in current cpuset (best under Slurm)
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        # fallback to Slurm env or Python's view
+        return int(os.getenv("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
+
+
+
+
+
 # Function to find the index of the nearest value in an array
 def find_nearest(array, value):
     idx = (np.abs(array - value)).argmin()
@@ -917,6 +932,7 @@ class GalacticEvolutionGA:
         turn the final ensemble into posterior-quality samples.
         """
         import gc, time
+        import multiprocessing as mp
         from multiprocessing import Pool, cpu_count
 
         total_eval_time = 0
@@ -924,7 +940,12 @@ class GalacticEvolutionGA:
         total_start_time = time.time()
         self.num_generations = num_generations
 
-        num_cores = cpu_count()
+        mp.set_start_method("spawn", force=True)   # do once at program entry
+        num_cores = alloc_cores()
+
+
+
+
         print('GA CONFIGURATION:')
         print(f'├─ Generations: {num_generations}')
         print(f'├─ Population Size: {population_size}')
@@ -934,8 +955,10 @@ class GalacticEvolutionGA:
 
         # --- run the GA exactly as before ---
         if self.PP:
-            with Pool(processes=num_cores) as pool:
-                toolbox.register("map", pool.map)
+
+            ctx = get_context("spawn")
+            with ctx.Pool(processes=num_cores) as pool:
+                toolbox.register("map", pool.map)      # DEAP actually goes parallel
                 self._run_genetic_algorithm(
                     population,
                     toolbox,
@@ -1363,6 +1386,18 @@ class GalacticEvolutionGA:
             fit, _ = toolbox.evaluate(ind)
             return float(fit[0])
 
+
+
+
+
+        import multiprocessing as mp
+
+        Ncores = alloc_cores()
+        self.demc_workers = min(Ncores, X0.shape[0])   # not more threads than walkers
+
+        if mp.current_process().name != "MainProcess":
+            raise RuntimeError("DEMC must run only in the coordinator process")
+
         ensemble, chains_df = run_smc_demc(
             X0,
             loss_from_vector,
@@ -1373,8 +1408,9 @@ class GalacticEvolutionGA:
             rng=rng,
             gamma_schedule=(None, 1.0),
             big_step_every=big_step_every,
-            max_workers=self.demc_workers,
+            max_workers=self.demc_workers,          # <- uses all available cores
         )
+
 
         self.refined_population = ensemble.copy()
 

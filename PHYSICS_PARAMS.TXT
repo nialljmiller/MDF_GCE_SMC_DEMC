@@ -1,0 +1,79 @@
+############################################################
+# sigma_2_list mass ratio of the second to the first infall
+#
+# In this OMEGA+ setup (exp_infall with A1=A2 = -1), the tuple
+#   twoinfall_sigmas = [Sigma_tot, sigma_2]
+# splits the total accreted mass M_tot into two episodes:
+#   M1 = M_tot / (1 + sigma_2)
+#   M2 = sigma_2 * M1
+############################################################
+sigma_2_list: [0.1, 5.0]
+
+
+############################################################
+# Tmax lists: Time (in Gyr) after the universe's birth when infall occurs.
+# tmax_1: First infall timing (for two-infall scenario, sweep; for single infall, fix)
+# tmax_2: Second infall timing
+############################################################
+tmax_1_list: [0.005, 0.1] 
+tmax_2_list: [0.1, 10.0]
+
+############################################################
+# Infall timescale list: Duration (in Gyr) of the infall events.
+# AKA tau1 and tau2
+# infall_timescale_1: Duration of first infall 
+# infall_timescale_2: Duration of second infall
+############################################################
+infall_timescale_1_list: [0.001, 0.1]
+infall_timescale_2_list: [0.1, 10.0]
+
+############################################################
+# Component array: Files containing abundances and isotopes.
+# These files set the metallicity of the infall material.
+# All gas coming into the galaxy is from these compositions (not primordial by default)
+############################################################
+comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
+
+############################################################
+# Star formation efficiency (SFE): Fraction of gas converted to stars.
+############################################################
+sfe_array: [1.0, 20.0]
+
+# multiplicative change in sfe
+delta_sfe_array: [0.01, 0.85]
+
+############################################################
+# Initial Mass Function (IMF): Describes the distribution of stellar masses.
+############################################################
+imf_array: ['salpeter', 'chabrier', 'kroupa']
+
+############################################################
+# IMF upper limit: The upper mass limit considered in the IMF.
+############################################################
+imf_upper_limits: [60, 130]  # Allow more massive stars
+
+############################################################
+# SN1a assumptions: Files specifying contributions from Type Ia supernovae.
+############################################################
+sn1a_assumptions: ['sn1a_Gronow.txt','sn1a_shen.txt']
+
+############################################################
+# Stellar yield assumptions: Determines the chemical yields for stars.
+# Files include assumptions for AGB stars and massive stars.
+############################################################
+stellar_yield_assumptions: ['agb_and_massive_stars_K10_LC18_Ravg.txt']
+
+############################################################
+# Galaxy mass values (total mass in solar masses): 
+############################################################
+Bulge_mass: [0.9e10,2.0e10]
+
+############################################################
+# Nb array: Number of SN1a per solar mass formed.
+############################################################
+nb_array: [0.5e-3, 1.5e-3]  # Sweep SN1a frequency
+
+############################################################
+# SN1a rate models: Determines the delay-time distribution form for SN1a rates.
+############################################################
+sn1a_rates: ['power_law','gauss','exp']

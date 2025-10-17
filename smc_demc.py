@@ -51,6 +51,7 @@ def choose_next_beta(loss: np.ndarray, beta_prev: float, target_ess_frac: float=
             lo = mid
     return min(1.0, beta_prev + lo)
 
+
 def de_mh_move(X: np.ndarray,
                loglike: Callable[[np.ndarray, object], float],
                bounds: List[Bound],
