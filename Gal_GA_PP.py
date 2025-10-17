@@ -1531,8 +1531,6 @@ class GalacticEvolutionGA:
         if not self.demc_hybrid or len(population) < 3:
             return
 
-        print(f"[DEMC-hybrid] gen={getattr(self,'gen',-1)}: proposing for {len(X)} walkers "
-              f"(threads={self.demc_workers})", flush=True)
 
 
 
@@ -1563,6 +1561,10 @@ class GalacticEvolutionGA:
 
         base_template = toolbox.clone(population[0])
         eval_cache = {}
+
+        print(f"[DEMC-hybrid] gen={getattr(self,'gen',-1)}: proposing for {len(X)} walkers "
+              f"(threads={self.demc_workers})", flush=True)
+
 
         def cache_key(cat_vals, theta):
             cat_tuple = tuple(int(v) for v in np.asarray(cat_vals).ravel())
