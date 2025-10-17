@@ -3,6 +3,13 @@
 # Author: N Miller, M Joyce
 ################################
 
+import sys
+try:
+    sys.stdout.reconfigure(line_buffering=True)  # Python 3.7+
+except Exception:
+    pass
+
+
 # Importing required libraries
 import matplotlib.pyplot as plt
 import warnings

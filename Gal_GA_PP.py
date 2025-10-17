@@ -935,7 +935,7 @@ class GalacticEvolutionGA:
         import multiprocessing as mp
         from multiprocessing import Pool, cpu_count
         from multiprocessing import get_context
-        
+
         total_eval_time = 0
         total_eval_steps = 0
         total_start_time = time.time()
@@ -1531,6 +1531,11 @@ class GalacticEvolutionGA:
         if not self.demc_hybrid or len(population) < 3:
             return
 
+        print(f"[DEMC-hybrid] gen={getattr(self,'gen',-1)}: proposing for {len(X)} walkers "
+              f"(threads={self.demc_workers})", flush=True)
+
+
+
         move_count = int(np.ceil(self.demc_fraction * len(population)))
         move_count = max(3, min(len(population), move_count))
         if move_count <= 0:
@@ -1595,6 +1600,9 @@ class GalacticEvolutionGA:
         if accepted_indices.size == 0:
             return
 
+        print(f"[DEMC-hybrid] accepted {int(accepted.sum())}/{len(accepted)}", flush=True)
+
+
         for local_idx in accepted_indices:
             pop_idx = indices[local_idx]
             theta = X_new[local_idx]
@@ -1649,9 +1657,11 @@ class GalacticEvolutionGA:
         base_k = max(1, len(population) // 16)  # ~6%
         elitism_k = max(1, int(getattr(self, 'elitism_k', base_k)))
 
+
+
         for gen in range(start_gen, num_generations):
-            print(f"-- =================== --")
-            print(f"-- Generation {gen}/{num_generations} --")
+            print(f"-- =================== --", flush=True)
+            print(f"-- Generation {gen}/{num_generations} --", flush=True)
             self.gen = gen
 
             # ---------- Step 1: evaluate invalid in current population ----------
