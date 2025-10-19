@@ -31,7 +31,7 @@ import mdf_plotting
 import corner
 from smc_demc import Bound, run_smc_demc, de_mh_move
 from loss import *
-from physical_constraints import apply_physics_penalty
+from physical_constraints import apply_physics_penalty, apply_physics_penalty_with_model
 from explore_dearth import voronoi_explore_dearths
 import ast
 from age_meta import age_meta_loss, test_age_meta_loss_function
@@ -1254,11 +1254,12 @@ class GalacticEvolutionGA:
             else:
 
                 self.physics_timer = 0
-                penalty_factor = apply_physics_penalty(
+                penalty_factor = apply_physics_penalty_with_model(
                     primary_loss_value, 
                     MDF_x_data, MDF_y_data, 
                     alpha_arrs, 
-                    age_x_data, age_y_data
+                    age_x_data, age_y_data,
+                    GCE_model=GCE_model
                 )
                 primary_loss_value = primary_loss_value * penalty_factor
 

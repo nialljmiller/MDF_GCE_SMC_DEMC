@@ -417,3 +417,380 @@ def apply_physics_penalty(loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_
     is_physical, penalty_factor = check_physical_plausibility(MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, liberal=True, age_meta_check=True)
 
     return penalty_factor
+
+
+def check_bulge_mass(GCE_model, liberal=False, min_mass=1e9, max_mass=1e11):
+    """
+    Check that the final stellar (bulge) mass is within reasonable bounds.
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+    min_mass : float
+        Minimum allowed stellar mass in Msun (default: 1e9)
+    max_mass : float
+        Maximum allowed stellar mass in Msun (default: 1e11)
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes the check
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    try:
+        # Get final stellar mass
+        m_stellar = GCE_model.inner.history.m_locked[-1]
+        
+        # Check if mass is within bounds
+        if m_stellar < min_mass:
+            violation_severity = (min_mass - m_stellar) / min_mass
+            if liberal:
+                penalty_factor *= (1 + 5 * violation_severity)
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+                
+        elif m_stellar > max_mass:
+            violation_severity = (m_stellar - max_mass) / max_mass
+            if liberal:
+                penalty_factor *= (1 + 5 * violation_severity)
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+                
+    except Exception as e:
+        # If we can't extract mass, apply penalty
+        if liberal:
+            penalty_factor *= 3.0
+        else:
+            is_physical = False
+            
+    return is_physical, penalty_factor
+
+
+def check_bulge_age(GCE_model, liberal=False, min_age_gyr=10.0):
+    """
+    Check that the final age of the system is old enough for a classical bulge.
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+    min_age_gyr : float
+        Minimum allowed age in Gyr (default: 10.0 for classical bulges)
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes the check
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    try:
+        # Get final age in Gyr
+        age_final_yr = GCE_model.inner.history.age[-1]
+        age_final_gyr = age_final_yr / 1e9
+        
+        # Check if age is old enough
+        if age_final_gyr < min_age_gyr:
+            violation_severity = (min_age_gyr - age_final_gyr) / min_age_gyr
+            if liberal:
+                penalty_factor *= (1 + 4 * violation_severity)
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+                
+    except Exception as e:
+        # If we can't extract age, apply penalty
+        if liberal:
+            penalty_factor *= 3.0
+        else:
+            is_physical = False
+            
+    return is_physical, penalty_factor
+
+
+def check_gas_fraction(GCE_model, liberal=False, max_gas_fraction=0.5):
+    """
+    Check that the final gas fraction is low (as expected for old bulges).
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+    max_gas_fraction : float
+        Maximum allowed gas fraction (default: 0.5 = 50%)
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes the check
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    try:
+        # Get final gas mass
+        gas_mass = np.sum(GCE_model.inner.ymgal[-1])
+        
+        # Get final stellar mass
+        stellar_mass = GCE_model.inner.history.m_locked[-1]
+        
+        # Calculate gas fraction
+        total_mass = gas_mass + stellar_mass
+        if total_mass > 0:
+            gas_fraction = gas_mass / total_mass
+        else:
+            gas_fraction = 0.0
+        
+        # Check if gas fraction is low enough
+        if gas_fraction > max_gas_fraction:
+            violation_severity = (gas_fraction - max_gas_fraction) / max_gas_fraction
+            if liberal:
+                penalty_factor *= (1 + 3 * violation_severity)
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+                
+    except Exception as e:
+        # If we can't extract masses, apply penalty
+        if liberal:
+            penalty_factor *= 3.0
+        else:
+            is_physical = False
+            
+    return is_physical, penalty_factor
+
+
+def check_sfh_peak_time(GCE_model, liberal=False, max_peak_time_gyr=3.0):
+    """
+    Check that the star formation rate peaks early (as expected for classical bulges).
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+    max_peak_time_gyr : float
+        Maximum allowed time for SFR peak in Gyr (default: 3.0)
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes the check
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    try:
+        # Get SFR and ages
+        sfr = np.array(GCE_model.inner.history.sfr_abs)
+        ages = np.array(GCE_model.inner.history.age) / 1e9  # Convert to Gyr
+        
+        # Find peak SFR time
+        if len(sfr) > 0 and np.max(sfr) > 0:
+            peak_idx = np.argmax(sfr)
+            peak_time_gyr = ages[peak_idx]
+            
+            # Check if peak occurs early enough
+            if peak_time_gyr > max_peak_time_gyr:
+                violation_severity = (peak_time_gyr - max_peak_time_gyr) / max_peak_time_gyr
+                if liberal:
+                    penalty_factor *= (1 + 2 * violation_severity)
+                else:
+                    is_physical = False
+                    return is_physical, penalty_factor
+                    
+    except Exception as e:
+        # If we can't extract SFH, apply penalty
+        if liberal:
+            penalty_factor *= 2.0
+        else:
+            is_physical = False
+            
+    return is_physical, penalty_factor
+
+
+def check_mean_stellar_age(GCE_model, liberal=False, min_mean_age_gyr=8.0):
+    """
+    Check that the mean stellar age is old enough (mass-weighted).
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+    min_mean_age_gyr : float
+        Minimum allowed mean stellar age in Gyr (default: 8.0)
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes the check
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    try:
+        # Get SFR and ages
+        sfr = np.array(GCE_model.inner.history.sfr_abs)
+        timesteps = np.array(GCE_model.inner.history.timesteps)
+        ages = np.array(GCE_model.inner.history.age) / 1e9  # Convert to Gyr
+        
+        # Calculate mass formed in each timestep
+        if len(sfr) > len(timesteps):
+            sfr = sfr[:len(timesteps)]
+        mass_formed = sfr * timesteps
+        
+        # Calculate current age of stars formed at each timestep
+        final_age_gyr = ages[-1]
+        stellar_ages = final_age_gyr - ages[:len(timesteps)]
+        
+        # Calculate mass-weighted mean age
+        total_mass = np.sum(mass_formed)
+        if total_mass > 0:
+            mean_age = np.sum(mass_formed * stellar_ages) / total_mass
+        else:
+            mean_age = 0.0
+        
+        # Check if mean age is old enough
+        if mean_age < min_mean_age_gyr:
+            violation_severity = (min_mean_age_gyr - mean_age) / min_mean_age_gyr
+            if liberal:
+                penalty_factor *= (1 + 3 * violation_severity)
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+                
+    except Exception as e:
+        # If we can't calculate mean age, apply penalty
+        if liberal:
+            penalty_factor *= 2.0
+        else:
+            is_physical = False
+            
+    return is_physical, penalty_factor
+
+
+def check_model_physics(GCE_model, liberal=False):
+    """
+    Comprehensive check of model-level physics (mass, age, gas fraction, SFH).
+    
+    Parameters:
+    -----------
+    GCE_model : omega_plus object
+        The GCE model instance after running
+    liberal : bool
+        If True, use penalties instead of hard rejection
+        
+    Returns:
+    --------
+    is_physical : bool
+        True if model passes all checks
+    penalty_factor : float
+        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
+    """
+    
+    penalty_factor = 1.0
+    is_physical = True
+    
+    # Check bulge mass
+    mass_is_physical, mass_penalty = check_bulge_mass(GCE_model, liberal=liberal)
+    if not mass_is_physical:
+        return False, penalty_factor
+    penalty_factor *= mass_penalty
+    
+    # Check bulge age
+    age_is_physical, age_penalty = check_bulge_age(GCE_model, liberal=liberal)
+    if not age_is_physical:
+        return False, penalty_factor
+    penalty_factor *= age_penalty
+    
+    # Check gas fraction
+    gas_is_physical, gas_penalty = check_gas_fraction(GCE_model, liberal=liberal)
+    if not gas_is_physical:
+        return False, penalty_factor
+    penalty_factor *= gas_penalty
+    
+    # Check SFH peak time
+    sfh_is_physical, sfh_penalty = check_sfh_peak_time(GCE_model, liberal=liberal)
+    if not sfh_is_physical:
+        return False, penalty_factor
+    penalty_factor *= sfh_penalty
+    
+    # Check mean stellar age
+    mean_age_is_physical, mean_age_penalty = check_mean_stellar_age(GCE_model, liberal=liberal)
+    if not mean_age_is_physical:
+        return False, penalty_factor
+    penalty_factor *= mean_age_penalty
+    
+    return is_physical, penalty_factor
+
+
+def apply_physics_penalty_with_model(loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, GCE_model=None):
+    """
+    Convenience function to apply physics penalty to a loss value, including model-level checks.
+    
+    Parameters:
+    -----------
+    loss_value : float
+        The base loss value
+    MDF_x_data : array
+        MDF x-axis data
+    MDF_y_data : array
+        MDF y-axis data
+    alpha_arrs : list
+        Alpha element abundance arrays
+    age_x_data : array
+        Age-metallicity x-axis data
+    age_y_data : array
+        Age-metallicity y-axis data
+    GCE_model : omega_plus object, optional
+        The GCE model instance for model-level checks
+        
+    Returns:
+    --------
+    penalty_factor : float
+        Total penalty factor to apply to loss
+    """
+    
+    # Apply existing physics checks
+    is_physical, penalty_factor = check_physical_plausibility(
+        MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, 
+        liberal=True, age_meta_check=True
+    )
+    
+    # Apply model-level checks if model is provided
+    if GCE_model is not None:
+        model_is_physical, model_penalty = check_model_physics(GCE_model, liberal=True)
+        penalty_factor *= model_penalty
+    
+    return penalty_factor
+
