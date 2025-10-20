@@ -740,16 +740,16 @@ def check_model_physics(GCE_model, liberal=False):
     penalty_factor *= gas_penalty
     
     # Check SFH peak time
-    sfh_is_physical, sfh_penalty = check_sfh_peak_time(GCE_model, liberal=liberal)
-    if not sfh_is_physical:
-        return False, penalty_factor
-    penalty_factor *= sfh_penalty
+    #sfh_is_physical, sfh_penalty = check_sfh_peak_time(GCE_model, liberal=liberal)
+    #if not sfh_is_physical:
+    #    return False, penalty_factor
+    #penalty_factor *= sfh_penalty
     
     # Check mean stellar age
-    mean_age_is_physical, mean_age_penalty = check_mean_stellar_age(GCE_model, liberal=liberal)
-    if not mean_age_is_physical:
-        return False, penalty_factor
-    penalty_factor *= mean_age_penalty
+    #mean_age_is_physical, mean_age_penalty = check_mean_stellar_age(GCE_model, liberal=liberal)
+    #if not mean_age_is_physical:
+    #    return False, penalty_factor
+    #penalty_factor *= mean_age_penalty
     
     return is_physical, penalty_factor
 

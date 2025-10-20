@@ -26,7 +26,7 @@ kwargs = {
     'mgal': 1e10,
     'dt': 1e7,
     'tend': 13e9,
-    'sfe': 0.01,
+    'sfe': 25.0,
     'table': 'yield_tables/agb_and_massive_stars_nugrid_MESAonly_fryer12delay.txt',
     'sn1a_table': 'yield_tables/sn1a_t86.txt',
     'print_off': True

@@ -1263,7 +1263,8 @@ class GalacticEvolutionGA:
                 )
                 primary_loss_value = primary_loss_value * penalty_factor
 
-
+        primary_loss_value = np.clip(primary_loss_value,0,1)
+        
         # Return the result with a detailed label
         label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
                  f'sigma2: {sigma_2:.3f}, t1: {t_1:.3f}, t2: {t_2:.3f}, '
