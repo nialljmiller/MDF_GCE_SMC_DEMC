@@ -174,10 +174,9 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df if not df.empty else None)
 
     print("Generating age-metallicity relation plots...")
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby,
-                          results_df=df if not df.empty else None, n_bins=10)
-    plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby,
-                                         df if not df.empty else None)
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df if not df.empty else None, n_bins=10)
+
+    plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df if not df.empty else None)
 
     plt.close('all')
 
@@ -187,18 +186,13 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
     # Core plots (fast)
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, 
-                         results_df=results_df, use_posterior=True)
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
 
-    plot_mdf_curves(GalGA, feh, count, 
-                   results_df=results_df, use_posterior=True)
+    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
 
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-                         results_df=results_df, use_posterior=True)
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
 
-    # Physics plots (slow, ~5-10 min)
-    plot_real_infall_physics(GalGA, results_df=results_df, 
-                            use_posterior=True, max_models=20)
+    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
 
 
     # ----------------------------

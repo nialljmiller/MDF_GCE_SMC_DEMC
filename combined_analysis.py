@@ -592,18 +592,13 @@ class UncertaintyAnalysis:
 
 
 def _discover_result_folders(base_dir):
-    """Return [(folder_name, folder_path, [csvs...])] for folders that contain simulation_results*.csv
-       Accepts: simulation_results.csv, simulation_results_<N>.csv, simulation_results_gen_<N>.csv
-    """
     out = []
     for name in sorted(os.listdir(base_dir)):
         p = os.path.join(base_dir, name)
-        if not os.path.isdir(p) or name.startswith('.'):
-            continue
         # collect all candidate result CSVs, but filter to our naming scheme
         cand = []
         cand += glob.glob(os.path.join(p, "simulation_results.csv"))
-        cand += glob.glob(os.path.join(p, "simulation_results_*[0-9].csv"))
+        cand += glob.glob(os.path.join(p, "simulation_results_*[0-9].csv")) #fucking find the fucking results omg
         cand = sorted(set(cand))
         cand = [c for c in cand
                 if re.match(r'^simulation_results(?:_gen_\d+|_\d+)?\.csv$',
@@ -613,7 +608,7 @@ def _discover_result_folders(base_dir):
     return out
 
 def _parse_suffix_from_name(fname):
-    # prefer _gen_<N>.csv, else _<N>.csv, else None
+    #jesus fuck this is annoying
     m = re.search(r'_gen_(\d+)\.csv$', fname)
     if m: return int(m.group(1))
     m = re.search(r'_(\d+)\.csv$', fname)
@@ -637,7 +632,6 @@ def _choose_primary_csv(csv_list):
 
 
 def _parse_pcard_ranges(pcard_path):
-    """Parse numeric [lo, hi] from bulge_pcard.txt keys -> {col: (lo, hi)}."""
     if not os.path.isfile(pcard_path):
         return {}
     with open(pcard_path, 'r', encoding='utf-8') as f:
@@ -668,9 +662,9 @@ def _parse_pcard_ranges(pcard_path):
     return ranges
 
 def _union_param_ranges(analyzers, params):
-    """Union [lo,hi] across analyzers using pcard when available; fallback to data min/max."""
+    #this is important otherwise the plots are shite
     union = {}
-    # gather pcard ranges
+    # get pcard ranges
     pcard_ranges_list = []
     for a in analyzers:
         pcard_path = getattr(a, 'bulge_pcard_path', 'bulge_pcard.txt')
@@ -701,8 +695,9 @@ def _union_param_ranges(analyzers, params):
             union[p] = (min(los), max(his))
     return union
 
+
+
 def _choose_common_params(analyzers, preferred=('sigma_2','t_2','infall_2','sfe')):
-    """Intersection of continuous params available across all analyzers; prefer a short, readable set."""
     sets = []
     for a in analyzers:
         cols = set(a.continuous_params) & set(a.df.columns)
@@ -732,14 +727,15 @@ def _colors_for(n, ink_colors=None):
         i += 1
     return out
 
-# -------- robust fitness column ----------
 def _fitness_col_of(a):
     col = getattr(a, 'fitness_col', None)
     if not col or col not in a.df.columns:
         raise RuntimeError("analyzer.fitness_col missing or not in analyzer.df")
     return col
 
-# -------- EM for 1D GMM on log-loss; return cutoff if K=2 wins ----------
+
+
+
 def _em_gmm_1d(y, K, iters=200, tol=1e-6):
     qs = np.linspace(0.2, 0.8, K)
     mu = np.quantile(y, qs) if K > 1 else np.array([float(np.mean(y))])
@@ -774,6 +770,10 @@ def _em_gmm_1d(y, K, iters=200, tol=1e-6):
     bic = -2.0*prev_ll + (2*K - 1)*np.log(y.size)
     order = np.argsort(mu)
     return pi[order], mu[order], sig[order], prev_ll, bic
+
+
+
+
 
 def _mixture_cutoff_from_losses(L, em_max_iter=200, tol=1e-6, force_k2=False):
     """Return (cutoff_or_None, keep_frac, chosen_K, (pi,mu,sig) for chosen K)."""
@@ -814,6 +814,8 @@ def _mixture_cutoff_from_losses(L, em_max_iter=200, tol=1e-6, force_k2=False):
     keep_frac = float(np.mean(L <= cutoff))
     return cutoff, keep_frac, 2, (pi2, mu2, sg2)
 
+
+
 def _cutoff_for_analyzer(a, fallback=None):
     """Prefer analyzer.choose_cutoff_lognorm_mixture(); else EM; return cutoff or fallback."""
     col = _fitness_col_of(a)
@@ -838,6 +840,9 @@ def _cutoff_for_analyzer(a, fallback=None):
         return cutoff
     return fallback
 
+
+
+
 def _select_by_cutoff_or_percentile(a, cutoff, fallback_percentile=10, weight_power=1.0):
     """Return (df_selected, weights) using cutoff if present; else top percentile."""
     col = _fitness_col_of(a)
@@ -858,7 +863,6 @@ def _select_by_cutoff_or_percentile(a, cutoff, fallback_percentile=10, weight_po
 
 
 
-# --- add these helpers inside plot_corner_with_marginals_multi, above the draw-loop ---
 def _hpd_threshold(Z, p, dx, dy):
     z = Z.ravel()
     if not np.isfinite(z).any() or z.max() <= 0:
@@ -966,8 +970,6 @@ def _weighted_hpd_1d(x, w, mass=0.68):
     return (float(xs[i]), float(xs[j]))
 
 
-# --- in unvertainty_analysis.py ---
-
 def _top_percentile_only(a, params, percentile=10, weight_power=1.0):
     """Deterministic: top X% by fitness with weights 1/(loss^p)."""
     col = _fitness_col_of(a)
@@ -1004,8 +1006,7 @@ def _combined_top_selection(analyzers, params, percentile=10, weight_power=1.0):
 
 
 
-
-# -------- loss overlays (KDE + CDF), color-matched ----------
+#all these lines should be similar GA == GA == GA
 def plot_loss_overlays_simple(analyzers, ink_colors, legend_labels, cutoffs=None, save_prefix=None, bins=60):
     if cutoffs is None: cutoffs = [None]*len(analyzers)
     # KDE overlay
@@ -1052,13 +1053,12 @@ def cutoff_at_peak(losses, kde_points=2048):
     L = np.asarray(losses, float)
     xs = np.linspace(L.min(), L.max(), int(kde_points))
     dens = gaussian_kde(L)(xs)
-    return 1.0#float(xs[np.argmax(dens)])   # cutoff = mode of loss KDE
+    return 1.0#float(xs[np.argmax(dens)])   # cutoff = mode of loss KDE shit
 
 
 
 
-
-# --- NEW: multi-overlay corner plot -----------------------------------------
+#this a guudun
 def plot_corner_with_marginals_multi(
         analyzers,
         params=None,
@@ -1945,12 +1945,8 @@ def plot_corner_points_contours(
 
 if __name__ == "__main__":
 
-    # --- NEW: interactive overlay across many folders
     current_dir = os.getcwd()
     found = _discover_result_folders(current_dir)
-    if not found:
-        print(f"No result folders found under {current_dir}")
-        sys.exit(0)
 
     print(f"\nFound {len(found)} candidate folders:")
     for idx, (name, path, csvs) in enumerate(found, start=1):
@@ -1995,7 +1991,6 @@ if __name__ == "__main__":
     overlay_dir = os.path.join(current_dir, "analysis")
     os.makedirs(overlay_dir, exist_ok=True)
 
-    # ---- FIRST: export best row per selected folder
     export_best_per_folder_csv(chosen, os.path.join(overlay_dir, "best_per_folder.csv"))
 
 
@@ -2024,6 +2019,7 @@ if __name__ == "__main__":
     os.makedirs(overlay_dir, exist_ok=True)
     tag = "_".join([labels[i][:12] for i in range(len(labels))])
 
+    #COLOURSSSSSS
     inkcolrs =  ['#F0B800',
                 '#004C40',
                 '#0099A1',
