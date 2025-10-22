@@ -993,19 +993,21 @@ class GalacticEvolutionGA:
 
         self.export_ga_samples()
 
-        # --- NEW: SMC+DE-MCMC refinement stage ---
-        print("\n[smc-demc] Starting Sequential Monte Carlo refinement using the final GA ensemble...")
-        smc_products = self.run_smc_demc_stage(
-            population=population,
-            toolbox=toolbox,
-            ess_trigger=0.60,         # resample when ESS/N < 0.60
-            moves_per_stage=3,        # DE–MH steps per stage
-            big_step_every=6,         # γ≈1 sweep every k stages
-            nsamples=200_000,         # rows sampled after burn-in thin/resample
-            burn_frac=0.20            # discard first 20% stages
-        )
-        self.smc_demc_products = smc_products
-        print("[smc-demc] Finished. Refinement artefacts written under:", self.output_path)
+        # --- SMC+DE-MCMC refinement stage ---
+        run_dmc = False #let the walkers walk this way?
+        if run_dmc:
+            print("\n[smc-demc] Starting Sequential Monte Carlo refinement using the final GA ensemble...")
+            smc_products = self.run_smc_demc_stage(
+                population=population,
+                toolbox=toolbox,
+                ess_trigger=0.60,         # resample when ESS/N < 0.60
+                moves_per_stage=3,        # DE–MH steps per stage
+                big_step_every=6,         # γ≈1 sweep every k stages
+                nsamples=200_000,         # rows sampled after burn-in thin/resample
+                burn_frac=0.20            # discard first 20% stages
+            )
+            self.smc_demc_products = smc_products
+            print("[smc-demc] Finished. Refinement artefacts written under:", self.output_path)
 
     def evaluate(self, individual):
         # Extract parameters from the individual
@@ -1264,7 +1266,7 @@ class GalacticEvolutionGA:
                 primary_loss_value = primary_loss_value * penalty_factor
 
         primary_loss_value = np.clip(primary_loss_value,0,1)
-        
+
         # Return the result with a detailed label
         label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
                  f'sigma2: {sigma_2:.3f}, t1: {t_1:.3f}, t2: {t_2:.3f}, '
@@ -1794,6 +1796,7 @@ class GalacticEvolutionGA:
         print(f"Results saved to: {results_file}")
 
         mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
+        
 
 
 

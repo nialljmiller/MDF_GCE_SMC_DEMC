@@ -21,24 +21,13 @@ from sklearn.neighbors import KernelDensity
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style for publication-quality figures
-plt.rcParams.update({
-    'figure.dpi': 300,
-    'savefig.dpi': 300,
-    'font.family': 'serif',
-    'font.size': 12,
-    'axes.labelsize': 18,
-    'axes.titlesize': 16,
-    'legend.fontsize': 11,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'lines.linewidth': 1.5,
-})
+from plotting.style import *
+use_paper_style()
 
 def ensure_output_dirs(base_path):
     """Create necessary output directories under base_path/uncertainty"""
     os.makedirs(base_path, exist_ok=True)
-    os.makedirs(os.path.join(base_path, 'uncertainty'), exist_ok=True)
+    #os.makedirs(os.path.join(base_path, 'uncertainty'), exist_ok=True)
 
 
 class UncertaintyAnalysis:
@@ -225,7 +214,7 @@ class UncertaintyAnalysis:
 
         fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.98])
-        save_path = os.path.join(self.output_path, 'uncertainty', 'marginalized_posteriors.png')
+        save_path = os.path.join(self.output_path, 'marginalized_posteriors.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return save_path, kdes
@@ -348,7 +337,7 @@ class UncertaintyAnalysis:
 
         fig.suptitle(title + f' — Top {percentile}%', y=0.92, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
-        save_path = os.path.join(self.output_path, 'uncertainty', 'posterior_corner.png')
+        save_path = os.path.join(self.output_path, 'posterior_corner.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return save_path
@@ -469,7 +458,7 @@ class UncertaintyAnalysis:
         fig.suptitle(title + (f' — Top {percentile}%' if percentile else ''), y=0.98, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
-        save_path = os.path.join(self.output_path, 'uncertainty', 'weighted_param_intervals_facet.png')
+        save_path = os.path.join(self.output_path, 'weighted_param_intervals_facet.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return save_path, table
@@ -606,7 +595,7 @@ class UncertaintyAnalysis:
         
         if save_results:
             # Save to file
-            output_file = os.path.join(self.output_path, 'uncertainty', 'bootstrap_results.txt')
+            output_file = os.path.join(self.output_path, 'bootstrap_results.txt')
             with open(output_file, 'w') as f:
                 f.write(f"Bootstrap Parameter Uncertainty Analysis\n")
                 f.write(f"{'='*50}\n")
@@ -760,7 +749,7 @@ class UncertaintyAnalysis:
             ax.set_ylabel('Density')
             ax.legend(frameon=False)
             ax.grid(alpha=0.25)
-            output_file = os.path.join(self.output_path, 'uncertainty', 'weighted_stats.txt')
+            output_file = os.path.join(self.output_path, 'weighted_stats.txt')
             plt.tight_layout()
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
@@ -840,7 +829,7 @@ class UncertaintyAnalysis:
             }
         
         if save_results:
-            output_file = os.path.join(self.output_path, 'uncertainty', 'weighted_stats.txt')
+            output_file = os.path.join(self.output_path, 'weighted_stats.txt')
             with open(output_file, 'w') as f:
                 f.write(f"Fitness-Weighted Parameter Statistics\n")
                 f.write(f"{'='*50}\n")
@@ -948,7 +937,7 @@ class UncertaintyAnalysis:
         plt.tight_layout()
         
         if save_plot:
-            save_path = os.path.join(self.output_path, 'uncertainty', 'marginalized_posteriors.png')
+            save_path = os.path.join(self.output_path, 'marginalized_posteriors.png')
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"Marginalized posteriors plot saved to {save_path}")
             
@@ -1106,7 +1095,7 @@ class UncertaintyAnalysis:
 
         fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.98])
-        save_path = os.path.join(self.output_path, 'uncertainty', 'marginalised_posteriors.png')
+        save_path = os.path.join(self.output_path, 'marginalised_posteriors.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         return save_path, kdes
@@ -1224,7 +1213,7 @@ class UncertaintyAnalysis:
         df_pairs = pd.DataFrame(rows).sort_values('MI_w', ascending=False)
 
         if save_csv:
-            out_csv = os.path.join(self.output_path, 'uncertainty', 'degeneracy_pairs.csv')
+            out_csv = os.path.join(self.output_path, 'degeneracy_pairs.csv')
             df_pairs.to_csv(out_csv, index=False)
             print(f"Pairwise degeneracy CSV: {out_csv}")
 
@@ -1291,7 +1280,7 @@ class UncertaintyAnalysis:
                         xticklabels=params, yticklabels=params, linewidths=0.3, linecolor='w')
             ax.set_title(f'{name} — Top {percentile}%')
             plt.tight_layout()
-            out = os.path.join(self.output_path, 'uncertainty', f'degeneracy_{name}.png')
+            out = os.path.join(self.output_path, f'degeneracy_{name}.png')
             plt.savefig(out, dpi=300, bbox_inches='tight')
             plt.close(fig)
             paths[name] = out
@@ -1345,7 +1334,7 @@ class UncertaintyAnalysis:
         ax.set_ylabel('Explained variance ratio')
         ax.grid(alpha=0.3)
         plt.tight_layout()
-        scree_path = os.path.join(self.output_path, 'uncertainty', 'pca_screen.png')
+        scree_path = os.path.join(self.output_path, 'pca_screen.png')
         plt.savefig(scree_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
         # loadings heatmap for top k
@@ -1357,12 +1346,12 @@ class UncertaintyAnalysis:
         sns.heatmap(loadings, cmap='coolwarm', center=0, ax=ax,
                     cbar_kws={'shrink':0.7}, annot=False, linewidths=0.3, linecolor='w')
         plt.tight_layout()
-        loadings_path = os.path.join(self.output_path, 'uncertainty', 'pca_loadings.png')
+        loadings_path = os.path.join(self.output_path, 'pca_loadings.png')
         plt.savefig(loadings_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
         # condition number (sloppiness index)
         cond = float(np.sqrt(np.max(evals)/max(np.min(evals), 1e-30)))
-        with open(os.path.join(self.output_path, 'uncertainty', 'pca_summary.txt'), 'w') as f:
+        with open(os.path.join(self.output_path, 'pca_summary.txt'), 'w') as f:
             f.write(f"Condition number (sqrt(lambda_max/lambda_min)): {cond:.3e}\n")
             f.write("Explained variance ratios:\n")
             for i, r in enumerate(explained, 1):
@@ -1617,7 +1606,7 @@ class UncertaintyAnalysis:
                         ax.set_xticks([])
 
         if save_path is None:
-            save_path = os.path.join(self.output_path, 'uncertainty', 'posterior_corner_combo.png')
+            save_path = os.path.join(self.output_path, 'posterior_corner_combo.png')
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
@@ -1765,7 +1754,7 @@ class UncertaintyAnalysis:
 
         ax.set_xlabel(self.fitness_col.upper()); ax.set_ylabel('Density'); ax.grid(alpha=0.25)
         ax.legend(frameon=False, fontsize=10, ncol=2)
-        dist_path = os.path.join(self.output_path, 'uncertainty', 'loss_distribution_analysis.png')
+        dist_path = os.path.join(self.output_path, 'loss_distribution_analysis.png')
         os.makedirs(os.path.dirname(dist_path), exist_ok=True)
         plt.tight_layout(); plt.savefig(dist_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
@@ -1779,11 +1768,11 @@ class UncertaintyAnalysis:
             ax.text(loss_cutoff, frac, f'  keep ≈ {pct:.1f}%', va='bottom', ha='left', fontsize=10)
         ax.set_xlabel(self.fitness_col.upper()); ax.set_ylabel('Cumulative population fraction')
         ax.set_ylim(0, 1); ax.grid(alpha=0.25); ax.legend(frameon=False)
-        cdf_path = os.path.join(self.output_path, 'uncertainty', 'cumulative_population_vs_loss.png')
+        cdf_path = os.path.join(self.output_path, 'cumulative_population_vs_loss.png')
         plt.tight_layout(); plt.savefig(cdf_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
         # ---------- audit ----------
-        audit_path = os.path.join(self.output_path, 'uncertainty', 'loss_cutoff.txt')
+        audit_path = os.path.join(self.output_path, 'loss_cutoff.txt')
         with open(audit_path, 'w') as f:
             f.write("method: bic_gaussmix_on_logloss_equal_responsibility\n")
             f.write(f"N: {N}\n")
@@ -1867,106 +1856,25 @@ class UncertaintyAnalysis:
 
 
 
-        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'uncertainty', 'posterior_corner_combo.png'),
+        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'posterior_corner_combo.png'),
             params=[p for p in ['sigma_2', 't_2', 'infall_2', 'sfe'] if p in self.continuous_params],
             percentile=ptile, weight_power=1.0, assoc_metric='spearman'
         )
 
 
-        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'uncertainty', 'in1_posterior_corner_combo.png'),
+        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'in1_posterior_corner_combo.png'),
             params=[p for p in ['sigma_2', 't_1', 'infall_1', 'sfe'] if p in self.continuous_params],
             percentile=ptile, weight_power=1.0, assoc_metric='spearman'
         )
 
 
-        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'uncertainty', 'chem_posterior_corner_combo.png'),
+        combo_path = self.plot_corner_with_marginals(save_path = os.path.join(self.output_path, 'chem_posterior_corner_combo.png'),
             params=[p for p in ['sigma_2', 'mgal', 'delta_sfe', 'sfe'] if p in self.continuous_params],
             percentile=ptile, weight_power=1.0, assoc_metric='spearman'
         )
 
 
-
-
-
-
-
-        # Generate summary report
-        report_file = os.path.join(self.output_path, 'uncertainty', 'comprehensive_report.txt')
-        with open(report_file, 'w') as f:
-            f.write("COMPREHENSIVE UNCERTAINTY QUANTIFICATION REPORT\n")
-            f.write("="*60 + "\n\n")
-
-            f.write("EXECUTIVE SUMMARY\n")
-            f.write("-"*20 + "\n")
-            f.write(f"Total models evaluated: {len(self.df)}\n")
-            f.write(f"Best fitness achieved: {self.df_sorted[self.fitness_col].iloc[0]:.6f}\n")
-            f.write(f"Fitness range: {self.df_sorted[self.fitness_col].iloc[0]:.6f} - "
-                    f"{self.df_sorted[self.fitness_col].iloc[-1]:.6f}\n\n")
-
-            f.write("FIGURES WRITTEN\n")
-            f.write("-"*16 + "\n")
-            f.write(f"Weighted 1D posteriors:   {path_1d_weighted}\n")
-            f.write(f"Weighted CI bars:         {save_path_facet}\n")
-            f.write(f"2D corner KDE:            {corner_path}\n\n")
-
-            f.write("PARAMETER CONSTRAINT QUALITY\n")
-            f.write("-"*30 + "\n")
-            well_constrained, moderate_constrained, poorly_constrained = [], [], []
-            for param in self.continuous_params:
-                cv = bootstrap_results[param]['coefficient_of_variation']
-                if cv < 0.05:   well_constrained.append((param, cv))
-                elif cv < 0.2:  moderate_constrained.append((param, cv))
-                else:           poorly_constrained.append((param, cv))
-            f.write(f"Well-constrained (CV < 5%): {len(well_constrained)} params\n")
-            for p, cv in well_constrained: f.write(f"  - {p}: CV = {cv:.4f}\n")
-            f.write(f"\nModerately constrained (5% ≤ CV < 20%): {len(moderate_constrained)} params\n")
-            for p, cv in moderate_constrained: f.write(f"  - {p}: CV = {cv:.4f}\n")
-            f.write(f"\nPoorly constrained (CV ≥ 20%): {len(poorly_constrained)} params\n")
-            for p, cv in poorly_constrained: f.write(f"  - {p}: CV = {cv:.4f}\n")
-
-            f.write("\nMETHODOLOGY VALIDATION\n")
-            f.write("-"*25 + "\n")
-            f.write("Bootstrap vs Weighted Statistics Agreement:\n")
-            for param in self.continuous_params:
-                boot_mean = bootstrap_results[param]['bootstrap_mean']
-                wmean    = weighted_results[param]['weighted_mean']
-                percent_diff = 100 * abs(boot_mean - wmean) / max(abs(boot_mean), 1e-12)
-                agreement = "Excellent" if percent_diff < 1 else "Good" if percent_diff < 5 else "Poor"
-                f.write(f"  {param}: {percent_diff:.2f}% difference ({agreement})\n")
-
-
-            f.write("DEGENERACY SUMMARY\n")
-            f.write("-"*20 + "\n")
-            f.write(f"Heatmaps:\n")
-            for k, v in deg_paths.items():
-                f.write(f"  {k}: {v}\n")
-            f.write(f"PCA Scree:    {pca_paths['scree']}\n")
-            f.write(f"PCA Loadings: {pca_paths['loadings']}\n\n")
-
-            # Top-5 degenerate pairs by each metric
-            f.write("Top pairs by |rho_w|:\n")
-            tmp = deg_pairs.copy()
-            tmp['abs_rho_w'] = tmp['rho_w'].abs()
-            for _, r in tmp.sort_values('abs_rho_w', ascending=False).head(5).iterrows():
-                f.write(f"  {r.pi} – {r.pj}: rho_w={r.rho_w:.3f}\n")
-
-            f.write("\nTop pairs by MI_w:\n")
-            for _, r in deg_pairs.sort_values('MI_w', ascending=False).head(5).iterrows():
-                f.write(f"  {r.pi} – {r.pj}: MI_w={r.MI_w:.3f}\n")
-
-            f.write("\nTop pairs by axis_ratio:\n")
-            for _, r in deg_pairs.sort_values('axis_ratio', ascending=False).head(5).iterrows():
-                f.write(f"  {r.pi} – {r.pj}: AR={r.axis_ratio:.2f}\n")
-
-
-        print(f"Comprehensive report saved to {report_file}")
-
-        return {
-            'bootstrap': bootstrap_results,
-            'weighted': weighted_results,
-            'kdes_weighted': _kdes
-        }
-
+        return
 
 
 def main(main_dir):
@@ -2034,17 +1942,12 @@ def main(main_dir):
     size = primary[1]
     suf = primary[2]
     stem = os.path.splitext(os.path.basename(path))[0]  # e.g., simulation_results_gen_80
-    run_output = os.path.join(base_output, stem) + os.sep
+    run_output = base_output#os.path.join(base_output, stem) + os.sep
 
     analyzer = UncertaintyAnalysis(results_file=path, output_path=run_output)
     _ = analyzer.generate_comprehensive_uncertainty_report()
 
-    # Report per-file outputs
-    print(f"\nAnalysis complete for {os.path.basename(path)}")
-    print(f"- {run_output}uncertainty/bootstrap_results.txt")
-    print(f"- {run_output}uncertainty/weighted_stats.txt")
-    print(f"- {run_output}uncertainty/marginalized_posteriors.png")
-    print(f"- {run_output}uncertainty/comprehensive_report.txt")
+
 
 
 
@@ -2052,33 +1955,41 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         main(sys.argv[1])
     else:
-        # Look up all folders in the current dir
-        # Create a list of all folders
-        # Run main in a loop over all folders
-        # Try to do this but accept some folders may fail
+
         current_dir = os.getcwd()
         folders = [f for f in os.listdir(current_dir) 
-                  if os.path.isdir(os.path.join(current_dir, f)) 
-                  and not f.startswith('.')]
-        
+                   if os.path.isdir(os.path.join(current_dir, f)) 
+                   and not f.startswith('.')]
+
         print(f"Found {len(folders)} folders in current directory: {current_dir}")
+        for i, folder in enumerate(folders, 1):
+            print(f"{i}: {folder}")
+        
+        user_input = input("Enter the number(s) of folder(s) to process (comma-separated, e.g., 1,3,5): ").strip()
+
+        
+        selected_indices = []
+        for part in user_input.split(','):
+            part = part.strip()
+            if part.isdigit():
+                idx = int(part) - 1
+                if 0 <= idx < len(folders):
+                    selected_indices.append(idx)
+        
+        selected_folders = [folders[i] for i in selected_indices]
+        
         successful_runs = 0
         failed_runs = 0
         
-        for folder in folders:
-            try:
-                print(f"\nProcessing folder: {folder}")
-                folder_path = os.path.join(current_dir, folder)
-                main(folder_path)
-                successful_runs += 1
-                print(f"✓ Successfully processed {folder}")
-            except Exception as e:
-                failed_runs += 1
-                print(f"✗ Failed to process folder {folder}: {str(e)}")
-                continue
-        
+        for folder in selected_folders:
+            print(f"\nProcessing folder: {folder}")
+            folder_path = os.path.join(current_dir, folder)
+            main(folder_path)
+            successful_runs += 1
+
+    
         print(f"\n=== Summary ===")
-        print(f"Total folders found: {len(folders)}")
+        print(f"Total selected: {len(selected_folders)}")
         print(f"Successfully processed: {successful_runs}")
         print(f"Failed: {failed_runs}")
-        plt.close('all')               # (optional) belt-and-suspenders at the end of an iteration
+        plt.close('all')        

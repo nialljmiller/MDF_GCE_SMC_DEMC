@@ -1,10 +1,10 @@
 {
-  "results_file": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bc_medbow_nu_SS_MDF/simulation_results_gen_80.csv",
-  "history_file": null,
-  "pcard": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bulge_pcard.txt",
-  "temperature": 0.1354457659314376,
-  "effective_sample_size": 1525.4941816622083,
-  "n_models": 3575,
+  "results_file": "/home/njm/MDF_GCE_SMC_DEMC/bc_medbow_nu_SS_MDF/simulation_results_gen_122.csv",
+  "history_file": "/home/njm/MDF_GCE_SMC_DEMC/bc_medbow_nu_SS_MDF/walker_history.npz",
+  "pcard": "/home/njm/MDF_GCE_SMC_DEMC/bulge_pcard.txt",
+  "temperature": 0.1349205021776939,
+  "effective_sample_size": 1935.7456897917407,
+  "n_models": 4545,
   "posterior_draws": 5000,
   "parameters": [
     "sigma_2",
@@ -18,5 +18,5 @@
     "mgal",
     "nb"
   ],
-  "output_dir": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bc_medbow_nu_SS_MDF/posterior"
+  "output_dir": "/home/njm/MDF_GCE_SMC_DEMC/bc_medbow_nu_SS_MDF/posterior"
 }

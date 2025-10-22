@@ -601,22 +601,25 @@ class UncertaintyAnalysis:
 
 
 
-
-
 def _discover_result_folders(base_dir):
-    """Return [(folder_name, folder_path, [csvs...])] for folders that contain simulation_results*.csv"""
+    """Return [(folder_name, folder_path, [csvs...])] for folders that contain simulation_results*.csv
+       Accepts: simulation_results.csv, simulation_results_<N>.csv, simulation_results_gen_<N>.csv
+    """
     out = []
     for name in sorted(os.listdir(base_dir)):
         p = os.path.join(base_dir, name)
         if not os.path.isdir(p) or name.startswith('.'):
             continue
-        csvs = sorted(glob.glob(os.path.join(p, "simulation_results.csv")))
-        if csvs:
-            out.append((name, p, csvs))
-
-        csvs = sorted(glob.glob(os.path.join(p, "simulation_results_*_.csv")))            
-        if csvs:    
-            out.append((name, p, csvs))
+        # collect all candidate result CSVs, but filter to our naming scheme
+        cand = []
+        cand += glob.glob(os.path.join(p, "simulation_results.csv"))
+        cand += glob.glob(os.path.join(p, "simulation_results_*[0-9].csv"))
+        cand = sorted(set(cand))
+        cand = [c for c in cand
+                if re.match(r'^simulation_results(?:_gen_\d+|_\d+)?\.csv$',
+                            os.path.basename(c))]
+        if cand:
+            out.append((name, p, cand))
     return out
 
 def _parse_suffix_from_name(fname):
@@ -628,17 +631,20 @@ def _parse_suffix_from_name(fname):
     return None
 
 def _choose_primary_csv(csv_list):
-    """Choose 'primary' results CSV from a list, mirroring your existing logic."""
+    """Choose the 'latest' results CSV: highest gen index, then newest mtime, then largest size."""
     recs = []
     for p in csv_list:
         try:
             size = os.path.getsize(p)
+            mtime = os.path.getmtime(p)
         except OSError:
-            size = -1
-        recs.append((p, size, _parse_suffix_from_name(os.path.basename(p))))
-    if any(suf is not None for _, _, suf in recs):
-        return max(recs, key=lambda r: ((r[2] if r[2] is not None else -1), r[1]))[0]
-    return max(recs, key=lambda r: r[1])[0]
+            size, mtime = -1, 0
+        suf = _parse_suffix_from_name(os.path.basename(p))  # int or None
+        recs.append((p, suf if suf is not None else -1, mtime, size))
+    # sort by (gen index, mtime, size)
+    return max(recs, key=lambda r: (r[1], r[2], r[3]))[0]
+
+
 
 def _parse_pcard_ranges(pcard_path):
     """Parse numeric [lo, hi] from bulge_pcard.txt keys -> {col: (lo, hi)}."""

@@ -1,10 +1,10 @@
 {
-  "results_file": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bc_medbow_nu_S_MDF/simulation_results_gen_33.csv",
+  "results_file": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bc_medbow_nu_S_MDF/simulation_results_gen_34.csv",
   "history_file": null,
   "pcard": "/cluster/medbow/project/galacticbulge/MDF_GCE_SMC_DEMC/bulge_pcard.txt",
-  "temperature": 0.1906738432780147,
-  "effective_sample_size": 1503.5422452309006,
-  "n_models": 3131,
+  "temperature": 0.19692537325500142,
+  "effective_sample_size": 1586.127846127644,
+  "n_models": 3214,
   "posterior_draws": 5000,
   "parameters": [
     "sigma_2",

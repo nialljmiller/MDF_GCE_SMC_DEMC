@@ -396,21 +396,14 @@ def run_ga(cp_manager):
 
 
 
-def load_ga_for_plotting():
+def load_ga_for_plotting(results_file):
     """Load GA object for plotting only"""
     global GalGA
     
     # For plot-only mode, we create a minimal GalGA object that has the properties 
     # needed for plotting, but doesn't run any computations
     
-    print(f"Loading existing results from {args.results_file}")
-    
-    # Make sure results file exists
-    import os
-    if not os.path.exists(args.results_file):
-        print(f"Error: Results file {args.results_file} not found")
-        sys.exit(1)
-    
+
     # Initialize a basic GalGA object
     GalGA = Gal_GA.GalacticEvolutionGA(
         output_path=output_path,        
@@ -458,7 +451,7 @@ def load_ga_for_plotting():
     
     # Load results from CSV
     try:
-        df = pd.read_csv(args.results_file)
+        df = pd.read_csv(results_file)
         
         # Extract results from the dataframe
         GalGA.results = df.values.tolist()
@@ -482,7 +475,7 @@ def load_ga_for_plotting():
         print(f"Error loading results: {e}")
         sys.exit(1)
     
-    return args.results_file
+    return results_file
 
 if __name__ == "__main__":
     results_file = os.path.join(output_path, 'simulation_results.csv')
@@ -492,7 +485,7 @@ if __name__ == "__main__":
         results_file = checkpoint.run_with_checkpoint(run_ga, output_path)
         save_walker_history()
     else:
-        load_ga_for_plotting()
+        load_ga_for_plotting(results_file)
         GalGA.walker_history = load_walker_history()
 
     # Generate all plots using the plotting module
