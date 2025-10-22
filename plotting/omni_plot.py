@@ -695,7 +695,7 @@ def plot_omni_figure(
 
 
     if save_path is None:
-        save_path = os.path.join(getattr(GalGA, "output_path", ""), " _Info_Figure_ApJ.png")
+        save_path = os.path.join(getattr(GalGA, "output_path", ""), " Omni_Info_Figure_ApJ.png")
 
 
     # ------ Select best model tuple ------

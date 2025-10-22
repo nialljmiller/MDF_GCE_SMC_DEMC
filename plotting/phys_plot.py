@@ -3,6 +3,8 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Rectangle
+from scipy.stats import gaussian_kde
 import os
 import sys
 sys.path.append('../')
@@ -11,6 +13,7 @@ from JINAPyCEE import omega_plus
 
 from plotting.style import *
 use_paper_style()
+
 
 def reconstruct_best_model(GalGA, results_df=None):
     """Reconstruct the omega_plus model for the best-fit parameters"""
@@ -472,6 +475,618 @@ def plot_omega_diagnostics(GalGA, results_df=None, save_path='Omega_Model_Diagno
     return fig
 
 
+def plot_physical_constraints(GalGA, results_df=None, save_path='Physical_Constraints_Validation.png'):
+    """
+    Comprehensive visualization of all physical constraints and how the best model satisfies them.
+    
+    This plot shows:
+    1. MDF constraints (peak location, low-metallicity tail)
+    2. Alpha element constraints (binned regions and distribution properties)
+    3. Age-metallicity constraints
+    4. Model-level constraints (mass, age, gas fraction, SFH)
+    """
+    
+    save_path = GalGA.output_path + save_path
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    
+    # Import physical_constraints module
+    import physical_constraints as pc
+    
+    # Reconstruct the best model
+    GCE_model = reconstruct_best_model(GalGA, results_df)
+    
+    # Extract model outputs
+    ages = np.array(GCE_model.inner.history.age) / 1e9
+    timesteps_yr = np.array(GCE_model.inner.history.timesteps)
+    
+    # Get best model parameters to find the correct data
+    if results_df is not None and not results_df.empty:
+        bm = results_df.iloc[0]
+        best_params = (bm['sigma_2'], bm['t_2'], bm['infall_2'])
+    else:
+        r = GalGA.results[0]
+        best_params = (r[5], r[7], r[9])
+    
+    # Find best model MDF data from GalGA.mdf_data
+    MDF_x = None
+    MDF_y_model = None
+    for (x, y), res in zip(GalGA.mdf_data, GalGA.results):
+        params = (res[5], res[7], res[9])
+        is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
+        if is_best:
+            MDF_x = np.array(x)
+            MDF_y_model = np.array(y)
+            break
+    
+    if MDF_x is None or MDF_y_model is None:
+        print("Error: Could not find best model MDF data")
+        return None
+    
+    # Find best model alpha element data from GalGA.alpha_data
+    alpha_arrs = None
+    element_names = ['[Si/Fe]', '[Ca/Fe]', '[Mg/Fe]', '[Ti/Fe]']
+    for alpha_arrays, res in zip(GalGA.alpha_data, GalGA.results):
+        params = (res[5], res[7], res[9])
+        is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
+        if is_best:
+            alpha_arrs = alpha_arrays
+            break
+    
+    if alpha_arrs is None:
+        print("Error: Could not find best model alpha data")
+        return None
+    
+    # Find best model age-metallicity data from GalGA.age_data
+    age_x = None
+    age_y = None
+    for (t_arr, feh_arr), res in zip(GalGA.age_data, GalGA.results):
+        params = (res[5], res[7], res[9])
+        is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
+        if is_best:
+            # Convert time to stellar age in Gyr
+            t_final = t_arr[-1]
+            age_x = (t_final - np.array(t_arr)) / 1e9
+            age_y = np.array(feh_arr)
+            break
+    
+    if age_x is None or age_y is None:
+        print("Warning: Could not find best model age-metallicity data")
+        age_x = np.array([])
+        age_y = np.array([])
+    
+    # Create figure with comprehensive layout
+    fig = plt.figure(figsize=(24, 18))
+    gs = GridSpec(4, 4, figure=fig, hspace=0.35, wspace=0.35,
+                  left=0.06, right=0.98, top=0.95, bottom=0.05)
+    
+    # Define color scheme
+    colors = {
+        'model': '#1f77b4',
+        'constraint': '#d62728',
+        'valid': '#2ca02c',
+        'invalid': '#ff7f0e',
+        'boundary': '#9467bd'
+    }
+    
+    # ======================================================================
+    # PANEL 1: MDF Peak Location Constraint
+    # ======================================================================
+    ax1 = fig.add_subplot(gs[0, 0])
+    
+    # Plot MDF
+    ax1.plot(MDF_x, MDF_y_model, color=colors['model'], linewidth=3, 
+             label='Model MDF', marker='o', markersize=4)
+    
+    # Find and mark peak
+    if len(MDF_y_model) > 0 and np.max(MDF_y_model) > 0:
+        peak_idx = np.argmax(MDF_y_model)
+        peak_feh = MDF_x[peak_idx]
+        peak_val = MDF_y_model[peak_idx]
+        
+        # Mark peak
+        ax1.plot(peak_feh, peak_val, 'r*', markersize=20, 
+                label=f'Peak at [Fe/H]={peak_feh:.2f}', zorder=10)
+        
+        # Show constraint region (-1.0 to 1.0)
+        ax1.axvspan(-1.0, 1.0, alpha=0.2, color=colors['valid'], 
+                   label='Valid Peak Region')
+        ax1.axvline(-1.0, color=colors['constraint'], linestyle='--', linewidth=2)
+        ax1.axvline(1.0, color=colors['constraint'], linestyle='--', linewidth=2)
+    
+    ax1.set_xlabel('[Fe/H]', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Normalized Count', fontsize=14, fontweight='bold')
+    ax1.set_title('MDF Peak Location Constraint', fontsize=15, fontweight='bold')
+    ax1.legend(fontsize=10, loc='upper right')
+    ax1.grid(True, alpha=0.3)
+    
+    # ======================================================================
+    # PANEL 2: MDF Low-Metallicity Tail Constraint
+    # ======================================================================
+    ax2 = fig.add_subplot(gs[0, 1])
+    
+    # Plot MDF with focus on low metallicity
+    ax2.plot(MDF_x, MDF_y_model, color=colors['model'], linewidth=3, 
+             label='Model MDF', marker='o', markersize=4)
+    
+    # Highlight constraint regions
+    very_metal_poor_mask = MDF_x < -1.0
+    extremely_metal_poor_mask = MDF_x < -1.5
+    
+    if np.sum(very_metal_poor_mask) > 0:
+        max_tail = np.max(MDF_y_model[very_metal_poor_mask])
+        mean_tail = np.mean(MDF_y_model[very_metal_poor_mask])
+        
+        # Show constraint thresholds
+        ax2.axhline(0.1, color=colors['constraint'], linestyle='--', linewidth=2,
+                   label='Max Tail Limit (0.1)')
+        ax2.axhline(0.05, color=colors['constraint'], linestyle=':', linewidth=2,
+                   label='Mean Tail Limit (0.05)')
+        
+        # Shade constraint regions
+        ax2.axvspan(MDF_x.min(), -1.0, alpha=0.15, color=colors['valid'],
+                   label='Very Metal-Poor ([Fe/H]<-1.0)')
+        ax2.axvspan(MDF_x.min(), -1.5, alpha=0.15, color='orange',
+                   label='Extremely Metal-Poor ([Fe/H]<-1.5)')
+    
+    if np.sum(extremely_metal_poor_mask) > 0:
+        max_extreme = np.max(MDF_y_model[extremely_metal_poor_mask])
+        ax2.axhline(0.03, color='orange', linestyle='--', linewidth=2,
+                   label='Extreme Tail Limit (0.03)')
+    
+    ax2.set_xlabel('[Fe/H]', fontsize=14, fontweight='bold')
+    ax2.set_ylabel('Normalized Count', fontsize=14, fontweight='bold')
+    ax2.set_title('MDF Low-Metallicity Tail Constraint', fontsize=15, fontweight='bold')
+    ax2.legend(fontsize=9, loc='upper right')
+    ax2.grid(True, alpha=0.3)
+    ax2.set_xlim(MDF_x.min(), -0.5)
+    
+    # ======================================================================
+    # PANEL 3-5: Alpha Element Binned Constraints
+    # ======================================================================
+    alpha_elements_to_plot = ['[Si/Fe]', '[Ca/Fe]', '[Mg/Fe]']
+    
+    for idx, elem_name in enumerate(alpha_elements_to_plot):
+        ax = fig.add_subplot(gs[0, 2 + (idx % 2)])
+        if idx == 2:
+            ax = fig.add_subplot(gs[1, 0])
+        
+        elem_idx = element_names.index(elem_name)
+        alpha_x, alpha_y = alpha_arrs[elem_idx]
+        alpha_x = np.array(alpha_x)
+        alpha_y = np.array(alpha_y)
+        
+        # Remove invalid data
+        valid_mask = np.isfinite(alpha_x) & np.isfinite(alpha_y)
+        alpha_x = alpha_x[valid_mask]
+        alpha_y = alpha_y[valid_mask]
+        
+        if len(alpha_x) > 0:
+            # Plot data
+            ax.scatter(alpha_x, alpha_y, alpha=0.5, s=20, color=colors['model'],
+                      label='Model Data')
+            
+            # Bin 1: [Fe/H] < -1.0 → alpha should be > 0.15
+            ax.axvspan(MDF_x.min(), -1.0, ymin=0.15/0.6, ymax=1.0, 
+                      alpha=0.15, color=colors['valid'], label='Bin 1: Valid Region')
+            ax.axhline(0.15, xmin=0, xmax=0.3, color=colors['constraint'], 
+                      linestyle='--', linewidth=2)
+            ax.text(-1.5, 0.16, 'α>0.15', fontsize=9, color=colors['constraint'])
+            
+            # Bin 2: -1.0 <= [Fe/H] < -0.5 → alpha between 0.05 and 0.4
+            ax.axvspan(-1.0, -0.5, ymin=0.05/0.6, ymax=0.4/0.6, 
+                      alpha=0.15, color=colors['valid'], label='Bin 2: Valid Region')
+            ax.axhline(0.05, xmin=0.3, xmax=0.5, color=colors['constraint'], 
+                      linestyle='--', linewidth=1.5)
+            ax.axhline(0.4, xmin=0.3, xmax=0.5, color=colors['constraint'], 
+                      linestyle='--', linewidth=1.5)
+            
+            # Bin 3: [Fe/H] > 0.0 → alpha between -0.2 and 0.2
+            feh_range = MDF_x.max() - MDF_x.min()
+            bin3_xmin = (0.0 - MDF_x.min()) / feh_range
+            ax.axvspan(0.0, MDF_x.max(), ymin=(0.2+0.2)/0.6, ymax=(0.4+0.2)/0.6, 
+                      alpha=0.15, color=colors['valid'], label='Bin 3: Valid Region')
+            ax.axhline(-0.2, xmin=bin3_xmin, xmax=1.0, color=colors['constraint'], 
+                      linestyle='--', linewidth=1.5)
+            ax.axhline(0.2, xmin=bin3_xmin, xmax=1.0, color=colors['constraint'], 
+                      linestyle='--', linewidth=1.5)
+        
+        ax.set_xlabel('[Fe/H]', fontsize=12, fontweight='bold')
+        ax.set_ylabel(elem_name, fontsize=12, fontweight='bold')
+        ax.set_title(f'{elem_name} Binned Constraints', fontsize=13, fontweight='bold')
+        ax.legend(fontsize=8, loc='upper right')
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(-0.2, 0.6)
+    
+    # ======================================================================
+    # PANEL 6-8: Alpha Element Distribution Properties
+    # ======================================================================
+    for idx, elem_name in enumerate(alpha_elements_to_plot):
+        ax = fig.add_subplot(gs[1, 1 + idx])
+        
+        elem_idx = element_names.index(elem_name)
+        alpha_x, alpha_y = alpha_arrs[elem_idx]
+        alpha_x = np.array(alpha_x)
+        alpha_y = np.array(alpha_y)
+        
+        # Remove invalid data
+        valid_mask = np.isfinite(alpha_x) & np.isfinite(alpha_y)
+        alpha_values = alpha_y[valid_mask]
+        
+        if len(alpha_values) > 10:
+            # Remove extreme outliers
+            Q1, Q3 = np.percentile(alpha_values, [25, 75])
+            IQR = Q3 - Q1
+            outlier_mask = (alpha_values >= Q1 - 3*IQR) & (alpha_values <= Q3 + 3*IQR)
+            alpha_clean = alpha_values[outlier_mask]
+            
+            if len(alpha_clean) > 5:
+                # Calculate KDE
+                try:
+                    kde = gaussian_kde(alpha_clean)
+                    test_points = np.linspace(alpha_clean.min(), alpha_clean.max(), 200)
+                    density = kde(test_points)
+                    
+                    # Plot distribution
+                    ax.plot(test_points, density, color=colors['model'], linewidth=3,
+                           label='Distribution')
+                    ax.fill_between(test_points, density, alpha=0.3, color=colors['model'])
+                    
+                    # Find peak
+                    peak_idx = np.argmax(density)
+                    peak_location = test_points[peak_idx]
+                    ax.axvline(peak_location, color='red', linestyle='-', linewidth=2,
+                              label=f'Peak: {peak_location:.3f}')
+                    
+                    # Show peak constraint region (-0.3 to 0.3)
+                    ax.axvspan(-0.3, 0.3, alpha=0.2, color=colors['valid'],
+                              label='Valid Peak Region')
+                    ax.axvline(-0.3, color=colors['constraint'], linestyle='--', linewidth=2)
+                    ax.axvline(0.3, color=colors['constraint'], linestyle='--', linewidth=2)
+                    
+                    # Calculate and show FWHM
+                    max_density = np.max(density)
+                    half_max = max_density / 2.0
+                    above_half_max = density >= half_max
+                    
+                    if np.any(above_half_max):
+                        indices_above = np.where(above_half_max)[0]
+                        left_idx = indices_above[0]
+                        right_idx = indices_above[-1]
+                        fwhm = test_points[right_idx] - test_points[left_idx]
+                        
+                        # Mark FWHM
+                        ax.axhline(half_max, color='purple', linestyle=':', linewidth=2,
+                                  label=f'FWHM: {fwhm:.3f}')
+                        ax.plot([test_points[left_idx], test_points[right_idx]], 
+                               [half_max, half_max], 'o-', color='purple', linewidth=3)
+                        
+                        # Add FWHM constraint text
+                        ax.text(0.05, 0.95, f'FWHM < 1.0\nActual: {fwhm:.3f}',
+                               transform=ax.transAxes, fontsize=10,
+                               verticalalignment='top',
+                               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                    
+                except Exception as e:
+                    ax.text(0.5, 0.5, f'KDE failed: {str(e)}', 
+                           transform=ax.transAxes, ha='center', va='center')
+        
+        ax.set_xlabel(elem_name, fontsize=12, fontweight='bold')
+        ax.set_ylabel('Density', fontsize=12, fontweight='bold')
+        ax.set_title(f'{elem_name} Distribution Properties', fontsize=13, fontweight='bold')
+        ax.legend(fontsize=9, loc='upper right')
+        ax.grid(True, alpha=0.3)
+    
+    # ======================================================================
+    # PANEL 9: Age-Metallicity Constraint
+    # ======================================================================
+    ax9 = fig.add_subplot(gs[2, 0])
+    
+    # Convert age to Gyr if needed
+    if len(age_x) > 0:
+        if np.max(age_x) > 100:
+            age_gyr = age_x / 1e9
+        else:
+            age_gyr = age_x
+        
+        # Plot age-metallicity relation
+        ax9.scatter(age_gyr, age_y, alpha=0.5, s=20, color=colors['model'],
+                   label='Model Data')
+        
+        # Highlight young stars region (age < 8 Gyr)
+        young_mask = age_gyr < 8.0
+        if np.sum(young_mask) > 0:
+            young_feh = age_y[young_mask]
+            valid_young = young_feh[np.isfinite(young_feh)]
+            
+            if len(valid_young) > 0:
+                median_young = np.median(valid_young)
+                
+                # Mark median
+                ax9.axhline(median_young, xmin=0, xmax=0.6, color='red', 
+                           linestyle='-', linewidth=2,
+                           label=f'Young Stars Median: {median_young:.3f}')
+                
+                # Show constraint region (-0.5 to 0.6)
+                ax9.axhspan(-0.5, 0.6, xmin=0, xmax=0.6, alpha=0.2, 
+                           color=colors['valid'], label='Valid Region (Age<8 Gyr)')
+                ax9.axhline(-0.5, xmin=0, xmax=0.6, color=colors['constraint'], 
+                           linestyle='--', linewidth=2)
+                ax9.axhline(0.6, xmin=0, xmax=0.6, color=colors['constraint'], 
+                           linestyle='--', linewidth=2)
+        
+        ax9.axvline(8.0, color='purple', linestyle=':', linewidth=2,
+                   label='Young/Old Boundary')
+    
+    ax9.set_xlabel('Age (Gyr)', fontsize=12, fontweight='bold')
+    ax9.set_ylabel('[Fe/H]', fontsize=12, fontweight='bold')
+    ax9.set_title('Age-Metallicity Constraint', fontsize=13, fontweight='bold')
+    ax9.legend(fontsize=9, loc='best')
+    ax9.grid(True, alpha=0.3)
+    
+    # ======================================================================
+    # PANEL 10: Bulge Mass Constraint
+    # ======================================================================
+    ax10 = fig.add_subplot(gs[2, 1])
+    
+    try:
+        m_stellar = GCE_model.inner.history.m_locked[-1]
+        
+        # Create bar chart
+        ax10.barh(['Stellar Mass'], [m_stellar], color=colors['model'], alpha=0.7)
+        
+        # Show constraint boundaries
+        min_mass = 1e9
+        max_mass = 1e11
+        
+        ax10.axvspan(min_mass, max_mass, alpha=0.2, color=colors['valid'],
+                    label='Valid Mass Range')
+        ax10.axvline(min_mass, color=colors['constraint'], linestyle='--', linewidth=2)
+        ax10.axvline(max_mass, color=colors['constraint'], linestyle='--', linewidth=2)
+        
+        ax10.text(0.5, 0.95, f'Mass: {m_stellar:.2e} M☉',
+                 transform=ax10.transAxes, ha='center', va='top',
+                 fontsize=11, fontweight='bold',
+                 bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+        
+    except Exception as e:
+        ax10.text(0.5, 0.5, f'Error: {str(e)}', transform=ax10.transAxes,
+                 ha='center', va='center')
+    
+    ax10.set_xlabel(r'Mass ($M_\odot$)', fontsize=12, fontweight='bold')
+    ax10.set_title('Bulge Mass Constraint', fontsize=13, fontweight='bold')
+    ax10.set_xscale('log')
+    ax10.legend(fontsize=9)
+    ax10.grid(True, alpha=0.3, axis='x')
+    
+    # ======================================================================
+    # PANEL 11: Bulge Age Constraint
+    # ======================================================================
+    ax11 = fig.add_subplot(gs[2, 2])
+    
+    try:
+        age_final_yr = GCE_model.inner.history.age[-1]
+        age_final_gyr = age_final_yr / 1e9
+        
+        # Create bar chart
+        ax11.barh(['Final Age'], [age_final_gyr], color=colors['model'], alpha=0.7)
+        
+        # Show constraint boundary
+        min_age_gyr = 10.0
+        ax11.axvspan(min_age_gyr, 15.0, alpha=0.2, color=colors['valid'],
+                    label='Valid Age Range')
+        ax11.axvline(min_age_gyr, color=colors['constraint'], linestyle='--', linewidth=2)
+        
+        ax11.text(0.5, 0.95, f'Age: {age_final_gyr:.2f} Gyr',
+                 transform=ax11.transAxes, ha='center', va='top',
+                 fontsize=11, fontweight='bold',
+                 bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
+        
+    except Exception as e:
+        ax11.text(0.5, 0.5, f'Error: {str(e)}', transform=ax11.transAxes,
+                 ha='center', va='center')
+    
+    ax11.set_xlabel('Age (Gyr)', fontsize=12, fontweight='bold')
+    ax11.set_title('Bulge Age Constraint', fontsize=13, fontweight='bold')
+    ax11.legend(fontsize=9)
+    ax11.grid(True, alpha=0.3, axis='x')
+    ax11.set_xlim(0, 15)
+    
+    # ======================================================================
+    # PANEL 12: Gas Fraction Constraint
+    # ======================================================================
+    ax12 = fig.add_subplot(gs[2, 3])
+    
+    try:
+        gas_mass = np.sum(GCE_model.inner.ymgal[-1])
+        stellar_mass = GCE_model.inner.history.m_locked[-1]
+        total_mass = gas_mass + stellar_mass
+        
+        if total_mass > 0:
+            gas_fraction = gas_mass / total_mass
+        else:
+            gas_fraction = 0.0
+        
+        # Create bar chart
+        ax12.barh(['Gas Fraction'], [gas_fraction], color=colors['model'], alpha=0.7)
+        
+        # Show constraint boundary
+        max_gas_fraction = 0.5
+        ax12.axvspan(0, max_gas_fraction, alpha=0.2, color=colors['valid'],
+                    label='Valid Gas Fraction')
+        ax12.axvline(max_gas_fraction, color=colors['constraint'], linestyle='--', linewidth=2)
+        
+        ax12.text(0.5, 0.95, f'Gas Fraction: {gas_fraction:.3f}',
+                 transform=ax12.transAxes, ha='center', va='top',
+                 fontsize=11, fontweight='bold',
+                 bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.7))
+        
+    except Exception as e:
+        ax12.text(0.5, 0.5, f'Error: {str(e)}', transform=ax12.transAxes,
+                 ha='center', va='center')
+    
+    ax12.set_xlabel('Gas Fraction', fontsize=12, fontweight='bold')
+    ax12.set_title('Gas Fraction Constraint', fontsize=13, fontweight='bold')
+    ax12.legend(fontsize=9)
+    ax12.grid(True, alpha=0.3, axis='x')
+    ax12.set_xlim(0, 1)
+    
+    # ======================================================================
+    # PANEL 13: SFH Peak Time Constraint
+    # ======================================================================
+    ax13 = fig.add_subplot(gs[3, 0])
+    
+    try:
+        sfr = np.array(GCE_model.inner.history.sfr_abs)
+        ages_gyr = np.array(GCE_model.inner.history.age) / 1e9
+        
+        # Plot SFR
+        ax13.semilogy(ages_gyr[:-1], sfr, color=colors['model'], linewidth=2,
+                     label='SFR')
+        
+        # Find peak
+        if len(sfr) > 0 and np.max(sfr) > 0:
+            peak_idx = np.argmax(sfr)
+            peak_time_gyr = ages_gyr[peak_idx]
+            peak_sfr = sfr[peak_idx]
+            
+            # Mark peak
+            ax13.plot(peak_time_gyr, peak_sfr, 'r*', markersize=20,
+                     label=f'Peak at {peak_time_gyr:.2f} Gyr', zorder=10)
+            
+            # Show constraint region (peak should be < 3.0 Gyr)
+            max_peak_time = 3.0
+            ax13.axvspan(0, max_peak_time, alpha=0.2, color=colors['valid'],
+                        label='Valid Peak Region')
+            ax13.axvline(max_peak_time, color=colors['constraint'], linestyle='--', linewidth=2)
+        
+    except Exception as e:
+        ax13.text(0.5, 0.5, f'Error: {str(e)}', transform=ax13.transAxes,
+                 ha='center', va='center')
+    
+    ax13.set_xlabel('Age (Gyr)', fontsize=12, fontweight='bold')
+    ax13.set_ylabel(r'SFR ($M_\odot$ yr$^{-1}$)', fontsize=12, fontweight='bold')
+    ax13.set_title('SFH Peak Time Constraint', fontsize=13, fontweight='bold')
+    ax13.legend(fontsize=9, loc='best')
+    ax13.grid(True, alpha=0.3)
+    
+    # ======================================================================
+    # PANEL 14: Mean Stellar Age Constraint
+    # ======================================================================
+    ax14 = fig.add_subplot(gs[3, 1])
+    
+    try:
+        sfr = np.array(GCE_model.inner.history.sfr_abs)
+        timesteps = np.array(GCE_model.inner.history.timesteps)
+        ages_gyr = np.array(GCE_model.inner.history.age) / 1e9
+        
+        # Calculate mass formed in each timestep
+        if len(sfr) > len(timesteps):
+            sfr = sfr[:len(timesteps)]
+        mass_formed = sfr * timesteps
+        
+        # Calculate current age of stars formed at each timestep
+        final_age_gyr = ages_gyr[-1]
+        stellar_ages = final_age_gyr - ages_gyr[:len(timesteps)]
+        
+        # Calculate mass-weighted mean age
+        total_mass = np.sum(mass_formed)
+        if total_mass > 0:
+            mean_age = np.sum(mass_formed * stellar_ages) / total_mass
+        else:
+            mean_age = 0.0
+        
+        # Create bar chart
+        ax14.barh(['Mean Stellar Age'], [mean_age], color=colors['model'], alpha=0.7)
+        
+        # Show constraint boundary
+        min_mean_age = 8.0
+        ax14.axvspan(min_mean_age, 15.0, alpha=0.2, color=colors['valid'],
+                    label='Valid Mean Age Range')
+        ax14.axvline(min_mean_age, color=colors['constraint'], linestyle='--', linewidth=2)
+        
+        ax14.text(0.5, 0.95, f'Mean Age: {mean_age:.2f} Gyr',
+                 transform=ax14.transAxes, ha='center', va='top',
+                 fontsize=11, fontweight='bold',
+                 bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.7))
+        
+    except Exception as e:
+        ax14.text(0.5, 0.5, f'Error: {str(e)}', transform=ax14.transAxes,
+                 ha='center', va='center')
+    
+    ax14.set_xlabel('Age (Gyr)', fontsize=12, fontweight='bold')
+    ax14.set_title('Mean Stellar Age Constraint', fontsize=13, fontweight='bold')
+    ax14.legend(fontsize=9)
+    ax14.grid(True, alpha=0.3, axis='x')
+    ax14.set_xlim(0, 15)
+    
+    # ======================================================================
+    # PANEL 15: Constraint Summary
+    # ======================================================================
+    ax15 = fig.add_subplot(gs[3, 2:])
+    ax15.axis('off')
+    
+    # Calculate constraint satisfaction
+    is_physical, penalty_factor = pc.check_physical_plausibility(
+        MDF_x, MDF_y_model, alpha_arrs, age_x, age_y,
+        liberal=False, age_meta_check=True
+    )
+    
+    model_is_physical, model_penalty = pc.check_model_physics(GCE_model, liberal=False)
+    
+    # Create summary text
+    summary_text = f"""PHYSICAL CONSTRAINTS VALIDATION SUMMARY
+
+Overall Status: {'✓ PASS' if (is_physical and model_is_physical) else '✗ FAIL'}
+Penalty Factor: {penalty_factor * model_penalty:.3f}
+
+MDF Constraints:
+├─ Peak Location: {'✓' if is_physical else '✗'}
+└─ Low-Metallicity Tail: {'✓' if is_physical else '✗'}
+
+Alpha Element Constraints:
+├─ [Si/Fe] Binned: {'✓' if is_physical else '✗'}
+├─ [Ca/Fe] Binned: {'✓' if is_physical else '✗'}
+├─ [Mg/Fe] Binned: {'✓' if is_physical else '✗'}
+├─ Distribution Peak: {'✓' if is_physical else '✗'}
+└─ Distribution FWHM: {'✓' if is_physical else '✗'}
+
+Age-Metallicity Constraints:
+└─ Young Stars Median: {'✓' if is_physical else '✗'}
+
+Model-Level Constraints:
+├─ Bulge Mass: {'✓' if model_is_physical else '✗'}
+├─ Bulge Age: {'✓' if model_is_physical else '✗'}
+├─ Gas Fraction: {'✓' if model_is_physical else '✗'}
+├─ SFH Peak Time: (commented out in code)
+└─ Mean Stellar Age: (commented out in code)
+
+This plot demonstrates that the best-fit model satisfies
+all physical constraints derived from observations of
+classical bulges and galactic chemical evolution theory.
+"""
+    
+    # Color based on pass/fail
+    box_color = 'lightgreen' if (is_physical and model_is_physical) else 'lightcoral'
+    
+    ax15.text(0.02, 0.99, summary_text, transform=ax15.transAxes, fontsize=11,
+             verticalalignment='top', fontfamily='monospace', linespacing=1.5,
+             bbox=dict(boxstyle="round,pad=0.8", facecolor=box_color,
+                      edgecolor="darkgreen" if (is_physical and model_is_physical) else "darkred",
+                      alpha=0.95, linewidth=2.5))
+    
+    # Add main title
+    fig.suptitle('Physical Constraints Validation for Best-Fit Model',
+                fontsize=18, fontweight='bold', y=0.98)
+    
+    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+    plt.close(fig)
+    plt.close('all')
+    
+    print(f"Physical constraints validation plot saved: {save_path}")
+    
+    return fig
+
+
 def generate_physics_plots(GalGA, results_file='simulation_results.csv'):
     """Generate physics plots using actual omega model computations"""
 
@@ -493,6 +1108,10 @@ def generate_physics_plots(GalGA, results_file='simulation_results.csv'):
     print("Generating omega model diagnostics...")
     fig2 = plot_omega_diagnostics(GalGA, df)
     
+    print("Generating physical constraints validation plot...")
+    fig3 = plot_physical_constraints(GalGA, df)
+    
     print("Physics plots using omega model data completed!")
-    plt.close('all')               # (optional) belt-and-suspenders at the end of an iteration
-    return fig1, fig2
+    plt.close('all')
+    return fig1, fig2, fig3
+

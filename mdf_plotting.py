@@ -27,6 +27,11 @@ from plotting.omni_plot import *              # omni info figure (if you use it)
 from plotting.core_plots import *
 from plotting.phys_plot import *
 
+
+from posterior_plotting_package.core_plots_posterior import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha
+from posterior_plotting_package.phys_plot_posterior import plot_real_infall_physics
+
+
 from plotting.style import *
 use_paper_style()
 
@@ -178,6 +183,22 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
     generate_physics_plots(GalGA, results_file=results_file)
+
+
+
+    # Core plots (fast)
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, 
+                         results_df=results_df, use_posterior=True)
+
+    plot_mdf_curves(GalGA, feh, count, 
+                   results_df=results_df, use_posterior=True)
+
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
+                         results_df=results_df, use_posterior=True)
+
+    # Physics plots (slow, ~5-10 min)
+    plot_real_infall_physics(GalGA, results_df=results_df, 
+                            use_posterior=True, max_models=20)
 
 
     # ----------------------------
@@ -409,14 +430,11 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
         GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
         feh, normalized_count, df
     )
-    plot_omni_figure_enhanced(
-        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-        feh, normalized_count, df
-    )
-    plot_omni_figure_ultimate(
-        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-        feh, normalized_count, df
-    )
+
+    #plot_omni_figure_enhanced(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,feh, normalized_count, df)
+
+    #plot_omni_figure_ultimate(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,feh, normalized_count, df)
+
     print("Omni info figure generated!")
 
 
