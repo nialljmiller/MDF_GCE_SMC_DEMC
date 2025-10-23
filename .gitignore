@@ -30,6 +30,7 @@ build/
 *.bmp
 
 # --- run/output directories (common in this repo) ---
+bc_*/
 bc_batch_*/
 **/bc_batch_*/
 results*/
