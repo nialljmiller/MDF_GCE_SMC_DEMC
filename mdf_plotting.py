@@ -28,8 +28,8 @@ from plotting.core_plots import *
 from plotting.phys_plot import *
 
 
-from posterior_plotting_package.core_plots_posterior import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha
-from posterior_plotting_package.phys_plot_posterior import plot_real_infall_physics
+from posterior_plotting_package.core_plots_posterior_v2 import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha
+from posterior_plotting_package.phys_plot_posterior_v2 import plot_real_infall_physics
 
 
 from plotting.style import *
@@ -97,7 +97,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     except FileNotFoundError:
         f = open("../data/Bensby_Data.tsv")
 
-    from posterior_analysis import run_posterior_report  # local import to avoid hard dependency
+    from plotting.posterior_analysis import run_posterior_report  # local import to avoid hard dependency
 
     # ----------------------------
     # Parse observational table
@@ -163,6 +163,16 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
 
+    # Core plots (fast)
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
+
+    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
+
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
+
+    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
+
+
 
     # ----------------------------
     # Core plots
@@ -185,20 +195,9 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
 
-    # Core plots (fast)
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
-
-    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
-
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
-
-    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
-
-
     # ----------------------------
     # Posterior analysis
     # ----------------------------
-    from posterior_analysis import run_posterior_report
     posterior_args = argparse.Namespace(
         results=os.path.abspath(results_file),
         history=None,

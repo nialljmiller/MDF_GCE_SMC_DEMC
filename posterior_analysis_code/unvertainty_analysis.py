@@ -13,6 +13,10 @@ from scipy.stats import gaussian_kde
 
 import os
 import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import sys
 import numpy as np
 import re, glob
 import pandas as pd
@@ -29,19 +33,10 @@ from sklearn.neighbors import KernelDensity
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style for publication-quality figures
-plt.rcParams.update({
-    'figure.dpi': 300,
-    'savefig.dpi': 300,
-    'font.family': 'serif',
-    'font.size': 12,
-    'axes.labelsize': 18,
-    'axes.titlesize': 16,
-    'legend.fontsize': 11,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'lines.linewidth': 1.5,
-})
+
+from plotting.style import *
+use_paper_style()
+
 
 def ensure_output_dirs(base_path):
     """Create necessary output directories under base_path/uncertainty"""

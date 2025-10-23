@@ -24,6 +24,10 @@ If ``root_dir`` is omitted, it defaults to the current directory.
 import argparse
 import os
 import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import sys
 import numpy as np
 import pandas as pd
 from typing import List, Tuple, Optional

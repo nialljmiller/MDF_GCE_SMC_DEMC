@@ -1,4 +1,8 @@
 import os
+import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import argparse
 import numpy as np
 import pandas as pd
@@ -18,9 +22,9 @@ from posterior_plotting_package.posterior_utils import (
     compute_alpha_ensemble
 )
 
-# from plotting.style import *
-# use_paper_style()
 
+from plotting.style import *
+use_paper_style()
 
 # Smoother (kept from original)
 def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):

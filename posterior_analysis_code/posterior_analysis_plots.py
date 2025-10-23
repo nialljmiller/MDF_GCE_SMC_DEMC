@@ -22,6 +22,10 @@ import argparse
 import json
 import math
 import os
+import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
@@ -48,19 +52,9 @@ warnings.filterwarnings('ignore')
 import glob
 from scipy import stats
 
-# Set style for publication-quality figures
-plt.rcParams.update({
-    'figure.dpi': 300,
-    'savefig.dpi': 300,
-    'font.family': 'serif',
-    'font.size': 12,
-    'axes.labelsize': 18,
-    'axes.titlesize': 16,
-    'legend.fontsize': 11,
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'lines.linewidth': 1.5,
-})
+
+from plotting.style import *
+use_paper_style()
 
 # ----------------------------------------------------------------------------
 
@@ -760,6 +754,7 @@ def _plot_alpha(
     plt.close(fig)
 
 
+
 def _plot_walker_paths(
     histories: List[List[List[float]]],
     param_names: List[str],
@@ -769,27 +764,69 @@ def _plot_walker_paths(
         print("[posterior] no walker histories found; skipping walker_paths.png")
         return
 
-    n_walkers = len(histories)
-    n_params = len(param_names)
-    n_steps = max(len(h) for h in histories) if histories else 0
+    import numpy as np
+    # Which parameter indices have any recorded, finite value?
+    def has_data_for_param(i: int) -> bool:
+        for w in histories:
+            for step in w:
+                if len(step) > i:
+                    v = step[i]
+                    if v is not None:
+                        try:
+                            if np.isfinite(v):
+                                return True
+                        except TypeError:
+                            # Non-numeric but present
+                            return True
+        return False
 
-    if n_steps == 0:
+    param_idxs = [i for i, _ in enumerate(param_names) if has_data_for_param(i)]
+    if not param_idxs:
+        print("[posterior] no parameters have recorded walker values; skipping plot.")
         return
 
-    fig, axes = plt.subplots(n_params, 1, figsize=(10, 2 * n_params), sharex=True)
+    n_rows = len(param_idxs)
+    fig, axes = plt.subplots(n_rows, 1, figsize=(10, 2 * n_rows), sharex=True)
     axes = np.atleast_1d(axes)
 
-    for i, ax in enumerate(axes):
-        for w in range(n_walkers):
-            path = [step[i] for step in histories[w] if len(step) > i]
-            ax.plot(path, alpha=0.3)
+    for ax, i in zip(axes, param_idxs):
+        # plot each walker path for this parameter
+        any_plotted = False
+        for w in histories:
+            y = [step[i] for step in w if len(step) > i]
+            if not y:
+                continue
+            y = np.asarray(y, dtype=float)
+            y = y[np.isfinite(y)]
+            if y.size >= 2:
+                ax.plot(y, alpha=0.3)
+                any_plotted = True
+            elif y.size == 1:
+                ax.plot([0], [float(y[0])], marker='.', linestyle='none', alpha=0.6)
+                any_plotted = True
 
         ax.set_ylabel(param_names[i])
+        if not any_plotted:
+            # If nothing ended up being plottable (e.g., all NaN), hide this axis.
+            ax.set_visible(False)
 
+    # Remove any axes that ended up invisible
+    for a in axes:
+        if not a.get_visible():
+            a.remove()
+
+    # If all were removed, bail out cleanly
+    if not any(getattr(a, 'axes', None) for a in fig.get_children()):
+        plt.close(fig)
+        print("[posterior] all candidate parameter panels were empty; no file written.")
+        return
+
+    axes = [a for a in fig.axes if a.get_visible()]
     axes[-1].set_xlabel("Generation")
     fig.tight_layout()
     fig.savefig(save_path, bbox_inches="tight")
     plt.close(fig)
+
 
 
 def run_single_posterior_report(

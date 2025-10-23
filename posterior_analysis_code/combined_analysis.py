@@ -13,6 +13,10 @@ from scipy.stats import gaussian_kde
 
 import os
 import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import sys
 import numpy as np
 import re, glob
 import pandas as pd
@@ -28,6 +32,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KernelDensity
 import warnings
 warnings.filterwarnings('ignore')
+
 from plotting.style import *
 use_paper_style()
 

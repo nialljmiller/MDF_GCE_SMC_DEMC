@@ -6,6 +6,10 @@ and plot it versus the number of generations with increased density from multipl
 """
 
 import os
+import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import re
 import glob
 import sys
@@ -14,6 +18,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from collections import defaultdict
+
+from plotting.style import *
+use_paper_style()
 
 # ---- UncertaintyAnalysis class (minimal version for this script) ----
 class UncertaintyAnalysis:
@@ -213,73 +220,87 @@ if __name__ == "__main__":
     weight_power = 1.0
 
     # Compute semimajor axis for each group
-    gen_numbers = sorted(groups.keys())
+    all_gens = sorted(groups.keys())
+    gens_kept = []
     semimajors = []
-    for gen in gen_numbers:
+    skipped = []
+
+    for gen in all_gens:
         csv_list = groups[gen]
-        if not csv_list:
+        if not csv_list or len(csv_list) < 2:
+            skipped.append(gen)
             continue
-        if len(csv_list) > 1:
-            analyzers = []
-            for csv_path in csv_list:
-                out_root = os.path.dirname(csv_path) + os.sep  # Minimal output path
-                a = UncertaintyAnalysis(results_file=csv_path, output_path=out_root)
-                analyzers.append(a)
 
-            # Get combined data
-            T, w_comb = _combined_top_selection(analyzers, params, percentile=percentile, weight_power=weight_power)
+        analyzers = []
+        for csv_path in csv_list:
+            out_root = os.path.dirname(csv_path) + os.sep
+            analyzers.append(UncertaintyAnalysis(results_file=csv_path, output_path=out_root))
 
-            if T.empty or len(T) < 8:
-                print(f"Skipping gen {gen}: insufficient combined data points ({len(T)}).")
-                continue
+        # Get combined data
+        T, w_comb = _combined_top_selection(analyzers, [param1, param2],
+                                            percentile=percentile, weight_power=weight_power)
+        if T.empty or len(T) < 8:
+            print(f"Skipping gen {gen}: insufficient combined data points ({len(T)}).")
+            skipped.append(gen)
+            continue
 
-            # Union ranges
-            param_ranges = _union_param_ranges(analyzers, params)
+        # Union ranges and grid
+        param_ranges = _union_param_ranges(analyzers, [param1, param2])
+        lo_x, hi_x = param_ranges.get(param1, (np.nanmin(T[param1]), np.nanmax(T[param1])))
+        lo_y, hi_y = param_ranges.get(param2, (np.nanmin(T[param2]), np.nanmax(T[param2])))
+        if not (np.isfinite(lo_x) and np.isfinite(hi_x) and hi_x > lo_x and
+                np.isfinite(lo_y) and np.isfinite(hi_y) and hi_y > lo_y):
+            print(f"Skipping gen {gen}: invalid parameter ranges.")
+            skipped.append(gen)
+            continue
 
-            # Grid
-            lo_x, hi_x = param_ranges.get(param1, (np.nanmin(T[param1]), np.nanmax(T[param1])))
-            lo_y, hi_y = param_ranges.get(param2, (np.nanmin(T[param2]), np.nanmax(T[param2])))
-            if not (np.isfinite(lo_x) and np.isfinite(hi_x) and hi_x > lo_x and
-                    np.isfinite(lo_y) and np.isfinite(hi_y) and hi_y > lo_y):
-                print(f"Skipping gen {gen}: invalid parameter ranges.")
-                continue
-            xg = np.linspace(lo_x, hi_x, grid_n)
-            yg = np.linspace(lo_y, hi_y, grid_n)
-            Xg, Yg = np.meshgrid(xg, yg)
+        xg = np.linspace(lo_x, hi_x, grid_n)
+        yg = np.linspace(lo_y, hi_y, grid_n)
+        Xg, Yg = np.meshgrid(xg, yg)
 
-            # Combined KDE
-            xC = T[param1].to_numpy(float)
-            yC = T[param2].to_numpy(float)
-            goodC = np.isfinite(xC) & np.isfinite(yC) & np.isfinite(w_comb)
-            xC = xC[goodC]; yC = yC[goodC]; wC = w_comb[goodC]
-            if xC.size < 8:
-                print(f"Skipping gen {gen}: insufficient finite points after filtering.")
-                continue
-            Zc = _kde_2d(xC, yC, wC, Xg, Yg)
-            Zc = np.nan_to_num(Zc, nan=0.0, posinf=0.0, neginf=0.0)
+        xC = T[param1].to_numpy(float)
+        yC = T[param2].to_numpy(float)
+        goodC = np.isfinite(xC) & np.isfinite(yC) & np.isfinite(w_comb)
+        xC, yC, wC = xC[goodC], yC[goodC], w_comb[goodC]
+        if xC.size < 8:
+            print(f"Skipping gen {gen}: insufficient finite points after filtering.")
+            skipped.append(gen)
+            continue
 
-            # Ellipse
-            el = _ellipse_from_hpd(Xg, Yg, Zc, p=p_hpd)
-            if el is None:
-                print(f"Skipping gen {gen}: could not compute ellipse.")
-                continue
-            semimajors.append(el['a'])
-            print(f"Gen {gen} ({len(csv_list)} CSVs): semimajor axis = {el['a']:.4f}")
+        Zc = _kde_2d(xC, yC, wC, Xg, Yg)
+        Zc = np.nan_to_num(Zc, nan=0.0, posinf=0.0, neginf=0.0)
+        el = _ellipse_from_hpd(Xg, Yg, Zc, p=p_hpd)
+        if el is None:
+            print(f"Skipping gen {gen}: could not compute ellipse.")
+            skipped.append(gen)
+            continue
+
+        gens_kept.append(gen)
+        semimajors.append(el['a'])
+        print(f"Gen {gen} ({len(csv_list)} CSVs): semimajor axis = {el['a']:.4f}")
 
     if not semimajors:
         print("No valid ellipses computed.")
         sys.exit(0)
 
+    # Persist the series for debugging/reuse
+    save_dir = os.path.join(current_dir, "analysis")
+    os.makedirs(save_dir, exist_ok=True)
+    pd.DataFrame({"generation": gens_kept, "semimajor": semimajors}).to_csv(
+        os.path.join(save_dir, "semimajor_vs_generations.csv"), index=False
+    )
+    print(f"Computed {len(semimajors)} ellipses across {len(all_gens)} generations; "
+          f"skipped {len(skipped)}: {skipped[:10]}{'...' if len(skipped) > 10 else ''}")
+
     # Plot
     fig, ax = plt.subplots(figsize=(8, 6))
-    ax.plot(gen_numbers, semimajors, marker='o', linestyle='-', color='b')
-    ax.set_xlabel('Number of Generations')
+    ax.plot(gens_kept, semimajors, marker='o', linestyle='-')
+    ax.set_xlabel('Generation')
     ax.set_ylabel('Semimajor Axis of Ellipse')
     ax.set_title(f'Ellipse Semimajor Axis vs Generations ({param1} vs {param2})')
     ax.grid(True)
 
-    save_path = os.path.join(current_dir, "analysis", "semimajor_vs_generations.png")
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    save_path = os.path.join(save_dir, "semimajor_vs_generations.png")
     fig.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
     print(f"Plot saved to: {save_path}")

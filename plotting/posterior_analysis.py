@@ -44,6 +44,8 @@ except ImportError as exc:  # pragma: no cover - dependency guard
     ) from exc
 
 from Gal_GA_PP import parse_inlist
+from plotting.style import *
+use_paper_style()
 
 
 # ----------------------------------------------------------------------------

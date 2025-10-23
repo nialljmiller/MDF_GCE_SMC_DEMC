@@ -2,12 +2,20 @@
 # ga_posterior.py — GA → pseudo-posterior corners with ESS control
 
 import os, re, glob, argparse, json
+import sys
+#os.chdir("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import corner
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import warnings
 # Suppress specific RuntimeWarnings
 warnings.filterwarnings("ignore")#, category=RuntimeWarning)
+
+from plotting.style import *
+use_paper_style()
 
 try:
     import corner
@@ -150,11 +158,7 @@ def pick_params(df, preferred=None, min_unique=20):
         raise ValueError("No continuous numeric parameters found.")
     return out
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-import corner
-from matplotlib.lines import Line2D
+
 
 def _colors_for(n, ink_colors=None):
     if ink_colors is not None and len(ink_colors) >= n:
