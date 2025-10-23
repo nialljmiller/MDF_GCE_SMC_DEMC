@@ -1,10 +1,10 @@
 {
-  "results_file": "/home/njm/MDF_GCE_SMC_DEMC/bc_test/simulation_results_gen_25.csv",
+  "results_file": "/home/njm/MDF_GCE_SMC_DEMC/bc_test/simulation_results_gen_142.csv",
   "history_file": null,
   "pcard": "/home/njm/MDF_GCE_SMC_DEMC/bulge_pcard.txt",
-  "temperature": 0.09114070594594838,
-  "effective_sample_size": 199.90300161855063,
-  "n_models": 390,
+  "temperature": 0.095243697984595,
+  "effective_sample_size": 812.0830339337944,
+  "n_models": 2058,
   "posterior_draws": 5000,
   "parameters": [
     "sigma_2",

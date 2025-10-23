@@ -1137,9 +1137,9 @@ class GalacticEvolutionGA:
                 deficit = dt_min*below.sum() - raw[below].sum()
                 raw[below] = dt_min
                 # take evenly from non-below bins
-                nb = (~below).sum()
-                if nb > 0:
-                    raw[~below] -= deficit/nb
+                n_nonbelow = (~below).sum()
+                if n_nonbelow > 0:
+                    raw[~below] -= deficit / n_nonbelow
                 # if any went sub-min due to borrow, clip and renormalize again
                 raw = np.clip(raw, dt_min, None)
                 raw *= dur / raw.sum()

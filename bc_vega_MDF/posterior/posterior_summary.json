@@ -1,0 +1,22 @@
+{
+  "results_file": "/home/nill/MDF_GCE_SMC_DEMC/bc_vega_MDF/simulation_results_gen_28.csv",
+  "history_file": null,
+  "pcard": "/home/nill/MDF_GCE_SMC_DEMC/bulge_pcard.txt",
+  "temperature": 0.16500920129510643,
+  "effective_sample_size": 2454.1506469322626,
+  "n_models": 5027,
+  "posterior_draws": 5000,
+  "parameters": [
+    "sigma_2",
+    "t_1",
+    "t_2",
+    "infall_1",
+    "infall_2",
+    "sfe",
+    "delta_sfe",
+    "imf_upper",
+    "mgal",
+    "nb"
+  ],
+  "output_dir": "/home/nill/MDF_GCE_SMC_DEMC/bc_vega_MDF/posterior"
+}
