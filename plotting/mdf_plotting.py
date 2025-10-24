@@ -165,7 +165,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
     # Core plots (fast)
-    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=-1)
+    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
 
     plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
 

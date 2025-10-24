@@ -33,6 +33,38 @@ from types import SimpleNamespace
 
 
 
+def get_latest_csv(path):
+    """
+    Find the latest results CSV in the folder:
+    - Prefer 'simulation_results.csv' if exists
+    - Else, find the highest 'simulation_results_gen_XX.csv'
+    Returns full path or None if no matching files.
+    """
+    files = [f for f in os.listdir(path) if f.startswith('simulation_results') and f.endswith('.csv')]
+    if not files:
+        return None
+
+    if 'simulation_results.csv' in files:
+        return os.path.join(path, 'simulation_results.csv')
+
+    # Parse gen numbers
+    gens = []
+    for f in files:
+        if '_gen_' in f:
+            try:
+                gen_str = f.split('_gen_')[1].split('.csv')[0]
+                gen = int(gen_str)
+                gens.append((gen, f))
+            except ValueError:
+                pass
+
+    if not gens:
+        return None
+
+    max_gen, max_f = max(gens)
+    return os.path.join(path, max_f)
+
+
 def _plot_only(entry, bins=60):
     import os
     import numpy as np
@@ -41,12 +73,15 @@ def _plot_only(entry, bins=60):
     
     import plotting.mdf_plotting as mdf_plotting
     
+
     if os.path.isdir(entry):
         outdir = os.path.abspath(entry)
-        results_csv = os.path.join(outdir, "simulation_results.csv")
+        results_csv = get_latest_csv(outdir)
     else:
         results_csv = os.path.abspath(entry)
         outdir = os.path.dirname(results_csv) or "."
+
+
     
     pcard = os.path.join(outdir, "bulge_pcard.txt")
     npz_path = os.path.join(outdir, "walker_history.npz")
@@ -365,7 +400,7 @@ def run_ga(cp_manager):
         ga_state = dict(cp_data.get("ga_state", {}))
         full_pop = list(cp_data.get("population", []) or [])
         
-        GalGA.__dict__.update(ga_state)
+        #GalGA.__dict__.update(ga_state)
         GalGA.checkpoint_population = full_pop[:]
         
         def _fit(ind):
@@ -400,11 +435,58 @@ def run_ga(cp_manager):
         if start_gen >= num_generations:
             num_generations = start_gen + 1
             print(f"Extending generations to {num_generations} to ensure ≥1 generation runs after resume.")
-    
+        
     else:
-        population = init_population
-        GalGA.walker_history = {i: [] for i in range(len(population))}
-        start_gen = 0
+        # Seed from prior results CSV in current output_path (pcard still governs everything)
+        csv_path = os.path.join(output_path, "simulation_results.csv")
+        if os.path.isfile(csv_path):
+            df = pd.read_csv(csv_path)
+
+            # Prefer 'loss' if present, else 'fitness', else keep existing order
+            if 'loss' in df.columns:
+                df = df.sort_values('loss')
+            elif 'fitness' in df.columns:
+                df = df.sort_values('fitness')
+
+            # Gene columns (0..14) in your results schema
+            # comp_idx, imf_idx, sn1a_idx, sy_idx, sn1ar_idx,
+            # sigma_2, t_1, t_2, infall_1, infall_2, sfe, delta_sfe, imf_upper, mgal, nb
+            cols = [
+                'comp_idx','imf_idx','sn1a_idx','sy_idx','sn1ar_idx',
+                'sigma_2','t_1','t_2','infall_1','infall_2',
+                'sfe','delta_sfe','imf_upper','mgal','nb'
+            ]  # matches the front of your col_names list (see below)
+
+            rows = df[cols].head(popsize).to_numpy()
+
+            population = []
+            template = init_population[0]
+            for r in rows:
+                ind = toolbox.clone(template)
+                for gi, val in enumerate(r):
+                    ind[gi] = int(val) if gi < 5 else float(val)  # first 5 categorical, rest float
+                if getattr(ind.fitness, "valid", False):
+                    del ind.fitness.values
+                population.append(ind)
+
+            # pad if needed: tiny jitter (your existing idiom)
+            while len(population) < popsize:
+                clone = toolbox.clone(population[0])
+                for gi in range(5, len(clone)):
+                    xv = float(clone[gi])
+                    span = max(abs(xv), 1.0) * 1e-4
+                    clone[gi] = xv + _np.random.normal(0.0, span)
+                if getattr(clone.fitness, "valid", False):
+                    del clone.fitness.values
+                population.append(clone)
+
+            GalGA.walker_history = {i: [] for i in range(len(population))}
+            start_gen = 0
+        else:
+            population = init_population
+            GalGA.walker_history = {i: [] for i in range(len(population))}
+            start_gen = 0
+
     
     GalGA.GenAl(
         population_size=popsize,

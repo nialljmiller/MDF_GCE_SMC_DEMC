@@ -796,8 +796,7 @@ def plot_physical_constraints(GalGA, results_df=None, save_path='Physical_Constr
         young_mask = age_gyr < 8.0
         if np.sum(young_mask) > 0:
             young_feh = age_y[young_mask]
-            print(young_feh)
-            valid_young = young_feh            
+            valid_young = young_feh            #fuck your fucking error checks
             if len(valid_young) > 0:
                 median_young = np.median(valid_young)
                 

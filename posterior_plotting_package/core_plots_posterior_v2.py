@@ -15,8 +15,10 @@ from posterior_plotting_package.posterior_utils import (
     get_weighted_posterior_samples,
     compute_mdf_ensemble,
     compute_age_feh_ensemble,
-    compute_alpha_ensemble
+    compute_alpha_ensemble, 
+    posterior_resample
 )
+
 from posterior_plotting_package.posterior_utils_density import plot_density_posterior_simple, plot_density_posterior_simple_vertical
 
 from plotting.style import *
@@ -239,9 +241,8 @@ def plot_age_feh_detailed(
         # POSTERIOR MODE: median + 1σ bands
         print(f"Computing posterior ensemble from top {percentile}% of models...")
         
-        top_df, weights = get_weighted_posterior_samples(results_df, 
-                                                         fitness_col='fitness', 
-                                                         percentile=percentile)
+        #top_df, weights = get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile=percentile)
+        top_df, weights = posterior_resample(results_df, weight_col='posterior_w', fitness_col='fitness', percentile=percentile, resampling='systematic')
         
         if top_df is not None and weights is not None:
             # Compute age-[Fe/H] ensemble

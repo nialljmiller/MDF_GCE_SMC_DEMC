@@ -483,6 +483,67 @@ def compute_alpha_ensemble(GalGA, top_df, weights, element_idx,
     return ensemble
 
 
+
+
+
+
+def _systematic_resample(weights, n):
+    # low-variance resampling (a.k.a. systematic)
+    weights = np.asarray(weights, float)
+    weights = weights / weights.sum()
+    cdf = np.cumsum(weights)
+    u0 = np.random.rand() / n
+    u = u0 + (np.arange(n) / n)
+    return np.searchsorted(cdf, u, side='right')
+
+def posterior_resample(results_df, *,
+                       weight_col=None,          # e.g. 'posterior_w' or 'sample_count'
+                       fitness_col='fitness',    # fallback
+                       percentile=None,          # optional fallback guard
+                       n_draws=512,              # controls plot MC noise
+                       resampling='systematic'): # or 'multinomial'
+    if results_df is None or results_df.empty:
+        raise ValueError("Empty results_df")
+
+    df = results_df.copy()
+
+    # --- 1) choose weights from the actual sampling, if present ---
+    if weight_col and (weight_col in df.columns):
+        w = np.asarray(df[weight_col], float)
+        w = np.clip(w, 0, np.inf)
+        if not np.isfinite(w).any() or w.sum() <= 0:
+            raise ValueError(f"Non-positive weights in {weight_col}")
+        w = w / w.sum()
+    elif 'sample_count' in df.columns:
+        # frequency of visits from DEMC/GA
+        w = np.asarray(df['sample_count'], float)
+        w = w / w.sum()
+    else:
+        # --- 2) defensible fallback: fitness-based, optionally with a cut ---
+        df = df.sort_values(fitness_col, ascending=True)
+        if percentile is not None:
+            n_top = max(1, int(len(df) * (percentile / 100.0)))
+            df = df.head(n_top).reset_index(drop=True)
+        fit = np.asarray(df[fitness_col], float)
+        eps = (fit.min() * 1e-3) if fit.min() > 0 else 1e-10
+        w = 1.0 / (fit + eps)
+        w = w / w.sum()
+
+    # --- 3) draw a fixed number of posterior samples ---
+    idx = (_systematic_resample(w, n_draws)
+           if resampling == 'systematic'
+           else np.random.choice(len(df), size=n_draws, replace=True, p=w))
+
+    # compress duplicates so heavy reconstructions happen once
+    uniq, counts = np.unique(idx, return_counts=True)
+    df_unique = df.iloc[uniq].reset_index(drop=True)
+    weights_unique = counts.astype(float)
+    weights_unique /= weights_unique.sum()
+    return df_unique, weights_unique
+
+
+
+
 if __name__ == '__main__':
     # Simple test
     print("Posterior utilities module loaded successfully.")

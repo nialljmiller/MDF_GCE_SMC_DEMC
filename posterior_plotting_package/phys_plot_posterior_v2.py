@@ -12,7 +12,7 @@ from JINAPyCEE import omega_plus
 # use_paper_style()
 
 # Import posterior utilities
-from posterior_plotting_package.posterior_utils import get_weighted_posterior_samples
+from posterior_plotting_package.posterior_utils import get_weighted_posterior_samples, posterior_resample
 from posterior_plotting_package.posterior_utils_density import plot_density_posterior_simple
 
 
@@ -448,47 +448,49 @@ def plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall_Phys
     # Compute physics ensemble or use single best model
     if use_posterior and results_df is not None and not results_df.empty:
         print(f"Computing physics posterior from top {percentile}% of models...")
-        print(f"(Limited to {max_models} model reconstructions for computational efficiency)")
+
+        draws_df, draw_w = posterior_resample(
+            results_df,
+            weight_col='posterior_w',     # if you have it; else remove so it falls back
+            fitness_col='fitness',
+            percentile=percentile,        # optional guard; you can set None if you want "use all"
+            n_draws=max_models,
+            resampling='systematic'
+        )
+
+
+        ensemble = compute_physics_ensemble(GalGA, draws_df, draw_w, max_models=max_models)
         
-        top_df, weights = get_weighted_posterior_samples(results_df, 
-                                                         fitness_col='fitness', 
-                                                         percentile=percentile)
-        
-        if top_df is not None and weights is not None:
-            ensemble = compute_physics_ensemble(GalGA, top_df, weights, max_models=max_models)
+        if ensemble is not None:
+            # Extract median and bands
+            ages = ensemble['sfr']['x']
+            sfr_median = ensemble['sfr']['median']
+            sfr_lower = ensemble['sfr']['lower']
+            sfr_upper = ensemble['sfr']['upper']
             
-            if ensemble is not None:
-                # Extract median and bands
-                ages = ensemble['sfr']['x']
-                sfr_median = ensemble['sfr']['median']
-                sfr_lower = ensemble['sfr']['lower']
-                sfr_upper = ensemble['sfr']['upper']
-                
-                inflow_median = ensemble['inflow']['median']
-                inflow_lower = ensemble['inflow']['lower']
-                inflow_upper = ensemble['inflow']['upper']
-                
-                outflow_median = ensemble['outflow']['median']
-                outflow_lower = ensemble['outflow']['lower']
-                outflow_upper = ensemble['outflow']['upper']
-                
-                gas_median = ensemble['gas_mass']['median']
-                gas_lower = ensemble['gas_mass']['lower']
-                gas_upper = ensemble['gas_mass']['upper']
-                
-                stellar_median = ensemble['stellar_mass']['median']
-                stellar_lower = ensemble['stellar_mass']['lower']
-                stellar_upper = ensemble['stellar_mass']['upper']
-                
-                metal_median = ensemble['metallicity']['median']
-                metal_lower = ensemble['metallicity']['lower']
-                metal_upper = ensemble['metallicity']['upper']
-            else:
-                print("Warning: Could not compute physics ensemble, falling back to best model")
-                use_posterior = False
+            inflow_median = ensemble['inflow']['median']
+            inflow_lower = ensemble['inflow']['lower']
+            inflow_upper = ensemble['inflow']['upper']
+            
+            outflow_median = ensemble['outflow']['median']
+            outflow_lower = ensemble['outflow']['lower']
+            outflow_upper = ensemble['outflow']['upper']
+            
+            gas_median = ensemble['gas_mass']['median']
+            gas_lower = ensemble['gas_mass']['lower']
+            gas_upper = ensemble['gas_mass']['upper']
+            
+            stellar_median = ensemble['stellar_mass']['median']
+            stellar_lower = ensemble['stellar_mass']['lower']
+            stellar_upper = ensemble['stellar_mass']['upper']
+            
+            metal_median = ensemble['metallicity']['median']
+            metal_lower = ensemble['metallicity']['lower']
+            metal_upper = ensemble['metallicity']['upper']
         else:
-            print("Warning: Could not extract weighted posterior samples, falling back to best model")
+            print("Warning: Could not compute physics ensemble, falling back to best model")
             use_posterior = False
+
     
     # Fallback to single best model
     if not use_posterior:
