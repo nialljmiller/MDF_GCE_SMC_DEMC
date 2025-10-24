@@ -27,7 +27,7 @@ from deap import base, creator, tools
 import random
 import pandas as pd
 import os
-import mdf_plotting
+import plotting.mdf_plotting as mdf_plotting
 import corner
 from smc_demc import Bound, run_smc_demc, de_mh_move
 from loss import *
@@ -180,7 +180,7 @@ class GalacticEvolutionGA:
                 demc_hybrid=True, demc_fraction=0.5, demc_moves_per_gen=1, demc_gamma=None, demc_rng_seed=None, demc_workers=None, plot_mode="full"):
 
         # Initialize parameters as instance variables
-        self.output_path = output_path
+        self.output_path = output_path + '/'
         self.sn1a_header = sn1a_header
         self.iniab_header = iniab_header
         self.sigma_2_list = sigma_2_list
