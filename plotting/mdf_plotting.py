@@ -29,8 +29,8 @@ from plotting.phys_plot import *
 
 
 
-from posterior_plotting_package.core_plots_posterior_v2 import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha
-from posterior_plotting_package.phys_plot_posterior_v2 import plot_real_infall_physics
+from posterior_plotting_package.core_plots_posterior import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha, plot_corner
+from posterior_plotting_package.phys_plot_posterior import plot_real_infall_physics
 
 
 from plotting.style import *
@@ -153,7 +153,9 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
         print(f"Unable to load {results_file}: {exc}")
         df = pd.DataFrame()
 
-
+    df['fitness'] = df['fitness'].values/df['physics_penalty'].values
+    df['physics_penalty'] = df['physics_penalty'] + 1.0
+    df['confidence'] = df['fitness'].values * df['physics_penalty'].values
 
 
     ####################
@@ -164,7 +166,12 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
 
 
+
     # Core plots (fast)
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'fitness')
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'physics_penalty')
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'confidence')    
+
     plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
 
     plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
@@ -194,32 +201,6 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
     generate_physics_plots(GalGA, results_file=results_file)
 
-
-
-    # ----------------------------
-    # Posterior analysis
-    # ----------------------------
-    posterior_args = argparse.Namespace(
-        results=os.path.abspath(results_file),
-        history=None,
-        pcard="bulge_pcard.txt",
-        output=None,
-        params=None,
-        nsamples=5000,
-        temperature=None,
-        seed=42,
-    )
-    summary = run_posterior_report(posterior_args)
-    posterior_dir = summary.get("output_dir",
-                                os.path.join(os.path.dirname(results_file),
-                                             "analysis", "posterior"))
-    ess = summary.get("effective_sample_size")
-    ess_text = f"{ess:.1f}" if isinstance(ess, (int, float)) else "n/a"
-    print(f"Posterior analysis complete. Outputs written to {posterior_dir}")
-    print(f"Posterior draws: {summary.get('posterior_draws')} (ESS={ess_text})")
-
-    print("All plotting complete! Generated MDF, AMR, alpha, and posterior diagnostics.")
-    print(f"Loaded {len(Fe_H)} observational data points for individual alpha elements")
 
 
 
@@ -430,6 +411,38 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     #plot_omni_figure_ultimate(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,feh, normalized_count, df)
 
     print("Omni info figure generated!")
+
+
+
+
+
+    # ----------------------------
+    # Posterior analysis
+    # ----------------------------
+    #posterior_args = argparse.Namespace(
+    #    results=os.path.abspath(results_file),
+    #    history=None,
+    #    pcard="bulge_pcard.txt",
+    #    output=None,
+    #    params=None,
+    #    nsamples=5000,
+    #    temperature=None,
+    #    seed=42,
+    #)
+    #summary = run_posterior_report(posterior_args)
+    #posterior_dir = summary.get("output_dir",
+    #                            os.path.join(os.path.dirname(results_file),
+    #                                         "analysis", "posterior"))
+    #ess = summary.get("effective_sample_size")
+    #ess_text = f"{ess:.1f}" if isinstance(ess, (int, float)) else "n/a"
+    #print(f"Posterior analysis complete. Outputs written to {posterior_dir}")
+    #print(f"Posterior draws: {summary.get('posterior_draws')} (ESS={ess_text})")
+
+    #print("All plotting complete! Generated MDF, AMR, alpha, and posterior diagnostics.")
+    #print(f"Loaded {len(Fe_H)} observational data points for individual alpha elements")
+
+
+
 
 
     # ----------------------------

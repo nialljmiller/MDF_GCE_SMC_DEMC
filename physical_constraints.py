@@ -4,6 +4,9 @@
 import numpy as np
 from scipy.stats import gaussian_kde
 
+
+
+
 def check_alpha_distribution_properties(alpha_arrs, liberal=False):
     """
     Check alpha abundance distribution properties: peak location and FWHM.
@@ -135,6 +138,11 @@ def check_alpha_distribution_properties(alpha_arrs, liberal=False):
     return is_physical, penalty_factor
 
 
+
+
+
+
+
 def check_simple_alpha_constraints(alpha_arrs, liberal=False):
     """
     Simple three-bin check for alpha element abundances.
@@ -236,187 +244,8 @@ def check_simple_alpha_constraints(alpha_arrs, liberal=False):
     return is_physical, penalty_factor
 
 
-def check_physical_plausibility(MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, liberal=False, age_meta_check=False):
-    """
-    Check if model outputs are physically plausible with both binned and distribution-based alpha constraints.
-    """
-    
-    penalty_factor = 1.0
-    is_physical = True
-    
-    # Convert to numpy arrays for safety
-    MDF_x = np.array(MDF_x_data)
-    MDF_y = np.array(MDF_y_data)
-    age_x = np.array(age_x_data)
-    age_y = np.array(age_y_data)
-    
-    # ===============================
-    # 1. BASIC MDF CHECKS
-    # ===============================
-    
-    # Check for negative MDF values
-    if np.any(MDF_y < 0):
-        if liberal:
-            penalty_factor *= 4.0
-        else:
-            is_physical = False
-            return is_physical, penalty_factor
-    
-    # Check MDF peak location (should be reasonable)
-    if len(MDF_y) > 0 and np.max(MDF_y) > 0:
-        peak_idx = np.argmax(MDF_y)
-        peak_feh = MDF_x[peak_idx]
-        
-        if not (-1.0 <= peak_feh <= 1.0):
-            if liberal:
-                penalty_factor *= 3.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-
-    # ===============================
-    # 2. LOW [Fe/H] TAIL CHECK  
-    # ===============================
-
-    # Check that very metal-poor stars ([Fe/H] < -1.0) have low number counts
-    very_metal_poor_mask = MDF_x < -1.0
-    if np.sum(very_metal_poor_mask) > 0:
-        low_feh_counts = MDF_y[very_metal_poor_mask]
-        
-        # Check maximum value in the tail
-        max_tail_count = np.max(low_feh_counts)
-        if max_tail_count > 0.1:  # Threshold for maximum allowed count in tail
-            if liberal:
-                penalty_factor *= 2.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-        
-        # Check mean value in the tail  
-        mean_tail_count = np.mean(low_feh_counts)
-        if mean_tail_count > 0.05:  # Threshold for mean count in tail
-            if liberal:
-                penalty_factor *= 2.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-
-    # Even stricter check for extremely metal-poor stars ([Fe/H] < -1.5)
-    extremely_metal_poor_mask = MDF_x < -1.5
-    if np.sum(extremely_metal_poor_mask) > 0:
-        extreme_low_feh_counts = MDF_y[extremely_metal_poor_mask]
-        max_extreme_tail = np.max(extreme_low_feh_counts)
-        
-        if max_extreme_tail > 0.03:  # Very strict threshold for extreme tail
-            if liberal:
-                penalty_factor *= 3.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-
-    # ===============================
-    # 3. ALPHA ELEMENT CONSTRAINTS (BINNED)
-    # ===============================
-    
-    alpha_is_physical, alpha_penalty = check_simple_alpha_constraints(alpha_arrs, liberal=liberal)
-    
-    if not alpha_is_physical:
-        return False, penalty_factor
-    
-    penalty_factor *= alpha_penalty
-    
-    # ===============================
-    # 4. ALPHA DISTRIBUTION PROPERTIES (NEW)
-    # ===============================
-    
-    alpha_dist_is_physical, alpha_dist_penalty = check_alpha_distribution_properties(alpha_arrs, liberal=liberal)
-    
-    if not alpha_dist_is_physical:
-        return False, penalty_factor
-    
-    penalty_factor *= alpha_dist_penalty
-    
-    # ===============================
-    # 5. BASIC AGE-METALLICITY CHECKS
-    # ===============================
-    
-    if age_meta_check and len(age_x) > 0 and len(age_y) > 0:
-        
-        # Convert age from years to Gyr if needed
-        if np.max(age_x) > 100:
-            age_gyr = age_x / 1e9
-        else:
-            age_gyr = age_x
-            
-        # Check for reasonable age range
-        if np.any(age_gyr < 0) or np.any(age_gyr > 15):
-            if liberal:
-                penalty_factor *= 3.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
 
 
-        if np.any(age_y > 0.7):
-            if liberal:
-                penalty_factor *= 3.0
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-    
-
-        
-        # Check that young stars (age < 8 Gyr) have reasonable median metallicity
-        young_stars_mask = age_gyr < 8.0
-        if np.sum(young_stars_mask) > 0:
-            young_feh = age_y[young_stars_mask]
-            
-            # Remove any extreme outliers or invalid values
-            valid_young_feh = young_feh[np.isfinite(young_feh)]
-            
-            if len(valid_young_feh) > 0:
-                median_young_feh = np.median(valid_young_feh)
-                
-                # Check if median is between -0.5 and 0.6
-                if not (-0.5 <= median_young_feh <= 0.6):
-                    violation_severity = max(abs(median_young_feh + 0.5), abs(median_young_feh - 0.6)) - 0.5
-                    if violation_severity > 0:
-                        if liberal:
-                            penalty_factor *= (1 + 3 * violation_severity)
-                        else:
-                            #print(f"REJECTED: Young stars median [Fe/H] = {median_young_feh:.3f} (outside [-0.5, 0.6])")
-                            is_physical = False
-                            return is_physical, penalty_factor
-    
-
-
-
-    # ===============================
-    # 6. GLOBAL SANITY CHECKS
-    # ===============================
-    
-    # Check for NaN or inf values anywhere
-    all_arrays = [MDF_x, MDF_y, age_x, age_y]
-    for alpha_x, alpha_y in alpha_arrs:
-        all_arrays.extend([np.array(alpha_x), np.array(alpha_y)])
-    
-    for arr in all_arrays:
-        if len(arr) > 0 and (np.any(np.isnan(arr)) or np.any(np.isinf(arr))):
-            is_physical = False
-            penalty_factor *= 3.0
-            return is_physical, penalty_factor
-    
-    return is_physical, penalty_factor
-
-
-def apply_physics_penalty(loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data):
-    """
-    Convenience function to apply physics penalty to a loss value.
-    """
-    
-    is_physical, penalty_factor = check_physical_plausibility(MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, liberal=True, age_meta_check=True)
-
-    return penalty_factor
 
 
 def check_bulge_mass(GCE_model, liberal=False, min_mass=1e9, max_mass=1e11):
@@ -581,125 +410,12 @@ def check_gas_fraction(GCE_model, liberal=False, max_gas_fraction=0.5):
     return is_physical, penalty_factor
 
 
-def check_sfh_peak_time(GCE_model, liberal=False, max_peak_time_gyr=3.0):
-    """
-    Check that the star formation rate peaks early (as expected for classical bulges).
-    
-    Parameters:
-    -----------
-    GCE_model : omega_plus object
-        The GCE model instance after running
-    liberal : bool
-        If True, use penalties instead of hard rejection
-    max_peak_time_gyr : float
-        Maximum allowed time for SFR peak in Gyr (default: 3.0)
-        
-    Returns:
-    --------
-    is_physical : bool
-        True if model passes the check
-    penalty_factor : float
-        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
-    """
-    
-    penalty_factor = 1.0
-    is_physical = True
-    
-    try:
-        # Get SFR and ages
-        sfr = np.array(GCE_model.inner.history.sfr_abs)
-        ages = np.array(GCE_model.inner.history.age) / 1e9  # Convert to Gyr
-        
-        # Find peak SFR time
-        if len(sfr) > 0 and np.max(sfr) > 0:
-            peak_idx = np.argmax(sfr)
-            peak_time_gyr = ages[peak_idx]
-            
-            # Check if peak occurs early enough
-            if peak_time_gyr > max_peak_time_gyr:
-                violation_severity = (peak_time_gyr - max_peak_time_gyr) / max_peak_time_gyr
-                if liberal:
-                    penalty_factor *= (1 + 2 * violation_severity)
-                else:
-                    is_physical = False
-                    return is_physical, penalty_factor
-                    
-    except Exception as e:
-        # If we can't extract SFH, apply penalty
-        if liberal:
-            penalty_factor *= 2.0
-        else:
-            is_physical = False
-            
-    return is_physical, penalty_factor
 
 
-def check_mean_stellar_age(GCE_model, liberal=False, min_mean_age_gyr=8.0):
-    """
-    Check that the mean stellar age is old enough (mass-weighted).
-    
-    Parameters:
-    -----------
-    GCE_model : omega_plus object
-        The GCE model instance after running
-    liberal : bool
-        If True, use penalties instead of hard rejection
-    min_mean_age_gyr : float
-        Minimum allowed mean stellar age in Gyr (default: 8.0)
-        
-    Returns:
-    --------
-    is_physical : bool
-        True if model passes the check
-    penalty_factor : float
-        Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
-    """
-    
-    penalty_factor = 1.0
-    is_physical = True
-    
-    try:
-        # Get SFR and ages
-        sfr = np.array(GCE_model.inner.history.sfr_abs)
-        timesteps = np.array(GCE_model.inner.history.timesteps)
-        ages = np.array(GCE_model.inner.history.age) / 1e9  # Convert to Gyr
-        
-        # Calculate mass formed in each timestep
-        if len(sfr) > len(timesteps):
-            sfr = sfr[:len(timesteps)]
-        mass_formed = sfr * timesteps
-        
-        # Calculate current age of stars formed at each timestep
-        final_age_gyr = ages[-1]
-        stellar_ages = final_age_gyr - ages[:len(timesteps)]
-        
-        # Calculate mass-weighted mean age
-        total_mass = np.sum(mass_formed)
-        if total_mass > 0:
-            mean_age = np.sum(mass_formed * stellar_ages) / total_mass
-        else:
-            mean_age = 0.0
-        
-        # Check if mean age is old enough
-        if mean_age < min_mean_age_gyr:
-            violation_severity = (min_mean_age_gyr - mean_age) / min_mean_age_gyr
-            if liberal:
-                penalty_factor *= (1 + 3 * violation_severity)
-            else:
-                is_physical = False
-                return is_physical, penalty_factor
-                
-    except Exception as e:
-        # If we can't calculate mean age, apply penalty
-        if liberal:
-            penalty_factor *= 2.0
-        else:
-            is_physical = False
-            
-    return is_physical, penalty_factor
 
 
-def check_model_physics(GCE_model, liberal=False):
+
+def check_model_physics(MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, GCE_model, liberal=False):
     """
     Comprehensive check of model-level physics (mass, age, gas fraction, SFH).
     
@@ -718,9 +434,19 @@ def check_model_physics(GCE_model, liberal=False):
         Multiplier for loss function (1.0 = no penalty, >1.0 = penalty)
     """
     
+    
+    # Convert to numpy arrays for safety
+    MDF_x = np.array(MDF_x_data)
+    MDF_y = np.array(MDF_y_data)
+    age_x = np.array(age_x_data)
+    age_y = np.array(age_y_data)
+
+
     penalty_factor = 1.0
     is_physical = True
     
+
+
     # Check bulge mass
     mass_is_physical, mass_penalty = check_bulge_mass(GCE_model, liberal=liberal)
     if not mass_is_physical:
@@ -739,22 +465,170 @@ def check_model_physics(GCE_model, liberal=False):
         return False, penalty_factor
     penalty_factor *= gas_penalty
     
-    # Check SFH peak time
-    #sfh_is_physical, sfh_penalty = check_sfh_peak_time(GCE_model, liberal=liberal)
-    #if not sfh_is_physical:
-    #    return False, penalty_factor
-    #penalty_factor *= sfh_penalty
     
-    # Check mean stellar age
-    #mean_age_is_physical, mean_age_penalty = check_mean_stellar_age(GCE_model, liberal=liberal)
-    #if not mean_age_is_physical:
-    #    return False, penalty_factor
-    #penalty_factor *= mean_age_penalty
+    # ===============================
+    # 1. BASIC MDF CHECKS
+    # ===============================
+    
+    # Check for negative MDF values
+    if np.any(MDF_y < 0):
+        if liberal:
+            penalty_factor *= 4.0
+        else:
+            is_physical = False
+            return is_physical, penalty_factor
+    
+    # Check MDF peak location (should be reasonable)
+    if len(MDF_y) > 0 and np.max(MDF_y) > 0:
+        peak_idx = np.argmax(MDF_y)
+        peak_feh = MDF_x[peak_idx]
+        
+        if not (-1.0 <= peak_feh <= 1.0):
+            if liberal:
+                penalty_factor *= 3.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+
+    # ===============================
+    # 2. LOW [Fe/H] TAIL CHECK  
+    # ===============================
+
+    # Check that very metal-poor stars ([Fe/H] < -1.0) have low number counts
+    very_metal_poor_mask = MDF_x < -1.0
+    if np.sum(very_metal_poor_mask) > 0:
+        low_feh_counts = MDF_y[very_metal_poor_mask]
+        
+        # Check maximum value in the tail
+        max_tail_count = np.max(low_feh_counts)
+        if max_tail_count > 0.1:  # Threshold for maximum allowed count in tail
+            if liberal:
+                penalty_factor *= 2.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+        
+        # Check mean value in the tail  
+        mean_tail_count = np.mean(low_feh_counts)
+        if mean_tail_count > 0.05:  # Threshold for mean count in tail
+            if liberal:
+                penalty_factor *= 2.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+
+    # Even stricter check for extremely metal-poor stars ([Fe/H] < -1.5)
+    extremely_metal_poor_mask = MDF_x < -1.5
+    if np.sum(extremely_metal_poor_mask) > 0:
+        extreme_low_feh_counts = MDF_y[extremely_metal_poor_mask]
+        max_extreme_tail = np.max(extreme_low_feh_counts)
+        
+        if max_extreme_tail > 0.03:  # Very strict threshold for extreme tail
+            if liberal:
+                penalty_factor *= 3.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+
+    # ===============================
+    # 3. ALPHA ELEMENT CONSTRAINTS (BINNED)
+    # ===============================
+    
+    alpha_is_physical, alpha_penalty = check_simple_alpha_constraints(alpha_arrs, liberal=liberal)
+    
+    if not alpha_is_physical:
+        return False, penalty_factor
+    
+    penalty_factor *= alpha_penalty
+    
+    # ===============================
+    # 4. ALPHA DISTRIBUTION PROPERTIES (NEW)
+    # ===============================
+    
+    alpha_dist_is_physical, alpha_dist_penalty = check_alpha_distribution_properties(alpha_arrs, liberal=liberal)
+    
+    if not alpha_dist_is_physical:
+        return False, penalty_factor
+    
+    penalty_factor *= alpha_dist_penalty
+    
+    # ===============================
+    # 5. BASIC AGE-METALLICITY CHECKS
+    # ===============================
+    
+    if len(age_x) > 0 and len(age_y) > 0:
+        
+        # Convert age from years to Gyr if needed
+        if np.max(age_x) > 100:
+            age_gyr = age_x / 1e9
+        else:
+            age_gyr = age_x
+            
+        # Check for reasonable age range
+        if np.any(age_gyr < 0) or np.any(age_gyr > 15):
+            if liberal:
+                penalty_factor *= 3.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+
+
+        if np.any(age_y > 0.7):
+            if liberal:
+                penalty_factor *= 3.0
+            else:
+                is_physical = False
+                return is_physical, penalty_factor
+    
+
+        
+        # Check that young stars (age < 8 Gyr) have reasonable median metallicity
+        young_stars_mask = age_gyr < 8.0
+        if np.sum(young_stars_mask) > 0:
+            young_feh = age_y[young_stars_mask]
+            
+            # Remove any extreme outliers or invalid values
+            valid_young_feh = young_feh[np.isfinite(young_feh)]
+            
+            if len(valid_young_feh) > 0:
+                median_young_feh = np.median(valid_young_feh)
+                
+                # Check if median is between -0.5 and 0.6
+                if not (-0.5 <= median_young_feh <= 0.6):
+                    violation_severity = max(abs(median_young_feh + 0.5), abs(median_young_feh - 0.6)) - 0.5
+                    if violation_severity > 0:
+                        if liberal:
+                            penalty_factor *= (1 + 3 * violation_severity)
+                        else:
+                            #print(f"REJECTED: Young stars median [Fe/H] = {median_young_feh:.3f} (outside [-0.5, 0.6])")
+                            is_physical = False
+                            return is_physical, penalty_factor
+    
+
+
+
+    # ===============================
+    # 6. GLOBAL SANITY CHECKS
+    # ===============================
+    
+    # Check for NaN or inf values anywhere
+    all_arrays = [MDF_x, MDF_y, age_x, age_y]
+    for alpha_x, alpha_y in alpha_arrs:
+        all_arrays.extend([np.array(alpha_x), np.array(alpha_y)])
+    
+    for arr in all_arrays:
+        if len(arr) > 0 and (np.any(np.isnan(arr)) or np.any(np.isinf(arr))):
+            is_physical = False
+            penalty_factor *= 3.0
+            return is_physical, penalty_factor
     
     return is_physical, penalty_factor
 
 
-def apply_physics_penalty_with_model(loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, GCE_model=None):
+
+
+
+def apply_physics_penalty(loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, GCE_model=None):
     """
     Convenience function to apply physics penalty to a loss value, including model-level checks.
     
@@ -781,16 +655,9 @@ def apply_physics_penalty_with_model(loss_value, MDF_x_data, MDF_y_data, alpha_a
         Total penalty factor to apply to loss
     """
     
-    # Apply existing physics checks
-    is_physical, penalty_factor = check_physical_plausibility(
-        MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, 
-        liberal=True, age_meta_check=True
-    )
-    
-    # Apply model-level checks if model is provided
-    if GCE_model is not None:
-        model_is_physical, model_penalty = check_model_physics(GCE_model, liberal=True)
-        penalty_factor *= model_penalty
+
+    model_is_physical, penalty_factor =  check_model_physics(MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data, GCE_model, liberal=True)
+
     
     return penalty_factor
 

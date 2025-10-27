@@ -486,6 +486,74 @@ def compute_alpha_ensemble(GalGA, top_df, weights, element_idx,
 
 
 
+# ----------------------------------------------------------------------------
+# Weighting utilities
+# ----------------------------------------------------------------------------
+
+def _effective_sample_size(weights: np.ndarray) -> float:
+    w = np.asarray(weights, dtype=float)
+    s = np.sum(w)
+    if s <= 0.0:
+        return 0.0
+    w = w / s
+    return float((w.sum() ** 2) / (np.sum(np.square(w)) + 1e-300))
+
+
+def _auto_temperature(residuals: np.ndarray) -> float:
+    mad = np.median(np.abs(residuals - np.median(residuals)))
+    if mad > 0:
+        return float(mad)
+    std = np.std(residuals)
+    if std > 0:
+        return float(std)
+    return 1.0
+
+
+def compute_weights(loss, temperature, floor,):
+    """Turn a loss array into normalized weights.
+
+    Parameters
+    ----------
+    loss:
+        Iterable of fitness/loss values (lower is better).
+    temperature:
+        Optional temperature for the exponential weighting.  If ``None`` a
+        robust scale (MAD) is used.
+    floor:
+        Minimum allowable temperature.
+
+    Returns
+    -------
+    weights, temperature_used, ess
+    """
+
+    arr = np.asarray(loss, dtype=float)
+    if arr.ndim != 1:
+        raise ValueError("loss must be 1-D")
+    finite = np.isfinite(arr)
+    if np.count_nonzero(finite) < 3:
+        raise ValueError("Not enough finite loss values to build a posterior")
+
+    arr = arr.copy()
+    arr[~finite] = np.nanmax(arr[finite])
+
+    resid = arr - np.nanmin(arr)
+    T = float(temperature) if temperature and temperature > 0 else _auto_temperature(resid)
+    T = max(float(T), floor)
+
+    weights = np.exp(-resid / T)
+    weights[~finite] = 0.0
+    s = np.sum(weights)
+    if s <= 0:
+        weights = np.ones_like(arr)
+        s = np.sum(weights)
+    weights /= s
+
+    ess = _effective_sample_size(weights)
+    return weights, T, ess
+
+
+
 
 def _systematic_resample(weights, n):
     # low-variance resampling (a.k.a. systematic)
@@ -495,6 +563,8 @@ def _systematic_resample(weights, n):
     u0 = np.random.rand() / n
     u = u0 + (np.arange(n) / n)
     return np.searchsorted(cdf, u, side='right')
+
+
 
 def posterior_resample(results_df, *,
                        weight_col=None,          # e.g. 'posterior_w' or 'sample_count'

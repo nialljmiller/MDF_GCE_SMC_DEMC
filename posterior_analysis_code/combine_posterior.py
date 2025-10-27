@@ -92,6 +92,7 @@ def select_folders(candidates: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
 
     return chosen
 
+
 def get_latest_csv(path: str) -> Optional[str]:
     """
     Find the latest results CSV in the folder:

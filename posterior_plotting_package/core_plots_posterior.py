@@ -9,14 +9,19 @@ from scipy.stats import binned_statistic
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import gaussian_kde
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import corner
 
 # Import posterior utilities
 from posterior_plotting_package.posterior_utils import (
     get_weighted_posterior_samples,
     compute_mdf_ensemble,
     compute_age_feh_ensemble,
-    compute_alpha_ensemble
+    compute_alpha_ensemble, 
+    posterior_resample,
+    compute_weights
 )
+
+from posterior_plotting_package.posterior_utils_density import plot_density_posterior_simple, plot_density_posterior_simple_vertical
 
 from plotting.style import *
 use_paper_style()
@@ -145,6 +150,8 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
 
 
+
+
 def plot_age_feh_detailed(
     GalGA,
     Fe_H,
@@ -236,11 +243,9 @@ def plot_age_feh_detailed(
     # ---- Plotting strategy ----
     if use_posterior and results_df is not None and not results_df.empty:
         # POSTERIOR MODE: median + 1σ bands
-        print(f"Computing posterior ensemble from top {percentile}% of models...")
         
-        top_df, weights = get_weighted_posterior_samples(results_df, 
-                                                         fitness_col='fitness', 
-                                                         percentile=percentile)
+        #top_df, weights = get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile=percentile)
+        top_df, weights = posterior_resample(results_df, weight_col='posterior_w', fitness_col='fitness', percentile=percentile, resampling='systematic')
         
         if top_df is not None and weights is not None:
             # Compute age-[Fe/H] ensemble
@@ -254,14 +259,11 @@ def plot_age_feh_detailed(
                 lower_feh = ensemble['lower']
                 upper_feh = ensemble['upper']
                 
-                # Plot median line
-                ax_main.plot(age_common, median_feh, color='crimson', lw=2.5, 
-                           zorder=5, label='Median model')
-                
-                # Plot 1σ uncertainty band
-                ax_main.fill_between(age_common, lower_feh, upper_feh, 
-                                    color='crimson', alpha=0.25, zorder=4,
-                                    label='1σ posterior')
+                # Plot 1σ uncertainty band with density shading
+                plot_density_posterior_simple(ax_main, age_common, median_feh, 
+                                             lower_feh, upper_feh, 
+                                             color='crimson', n_levels=20, 
+                                             zorder=4, label='1σ posterior')
                 
                 # Store for residuals
                 best_age_gyr = age_common
@@ -507,6 +509,8 @@ def plot_age_feh_detailed(
     return fig
 
 
+
+
 def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None,
                    use_posterior=True, percentile=10):
     """
@@ -567,14 +571,11 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
                 lower_mdf = mdf_ensemble['lower']
                 upper_mdf = mdf_ensemble['upper']
                 
-                # Plot median line
-                ax_main.plot(feh_common, median_mdf, color='crimson', lw=1.8, 
-                           label='Median model', zorder=3)
-                
-                # Plot 1σ uncertainty band
-                ax_main.fill_between(feh_common, lower_mdf, upper_mdf, 
-                                    color='crimson', alpha=0.25, zorder=2,
-                                    label='1σ posterior')
+                # Plot 1σ uncertainty band with density shading
+                plot_density_posterior_simple(ax_main, feh_common, median_mdf,
+                                             lower_mdf, upper_mdf,
+                                             color='crimson', n_levels=20,
+                                             zorder=2, label='1σ posterior')
                 
                 best_x, best_y = feh_common, median_mdf
             else:
@@ -631,6 +632,13 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
     plt.close(fig)
     print(f"Saved: {save_path}")
     return fig
+
+
+
+
+
+
+
 
 
 def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=None, 
@@ -703,14 +711,11 @@ def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=No
                     lower_alpha = alpha_ensemble['lower']
                     upper_alpha = alpha_ensemble['upper']
                     
-                    # Plot median line
-                    ax_main.plot(feh_common, median_alpha, color='crimson', lw=2.5, 
-                               zorder=3, label='Median model')
-                    
-                    # Plot 1σ uncertainty band
-                    ax_main.fill_between(feh_common, lower_alpha, upper_alpha, 
-                                        color='crimson', alpha=0.25, zorder=2,
-                                        label='1σ posterior')
+                    # Plot 1σ uncertainty band with density shading
+                    plot_density_posterior_simple(ax_main, feh_common, median_alpha,
+                                                 lower_alpha, upper_alpha,
+                                                 color='crimson', n_levels=20,
+                                                 zorder=2, label='1σ posterior')
                     
                     best_x, best_y = feh_common, median_alpha
                 else:
@@ -800,6 +805,99 @@ def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=No
     print(f"Four-panel alpha plot with posterior saved to {save_path}")
 
 
-if __name__ == '__main__':
-    print("Core plots module with posterior uncertainty bands loaded.")
 
+
+
+
+
+def plot_corner(GalGA, results_df=None, save_path=None, use_posterior=True, percentile=None, nsamples=999, metric_val = 'fitness'):
+    """
+    Generate a corner plot for the full weighted posterior distribution.
+    - Uses the entire dataset with exponential weights (no percentile cutoff).
+    - Computes weighted mean and median for each parameter.
+    - Focuses on 1σ contour to identify degeneracies.
+    """
+    if save_path is None:
+        save_path = GalGA.output_path
+
+    if results_df is None or results_df.empty:
+        print("Warning: No results dataframe provided or it is empty. Skipping corner plot.")
+        return
+
+    df = results_df.sort_values(metric_val).reset_index(drop=True)
+    loss = df[metric_val].values
+    weights, _, _ = compute_weights(loss)
+
+    params = [
+        "sigma_2",
+        "t_1",
+        "t_2",
+        "infall_1",
+        "infall_2",
+        "sfe",
+        "delta_sfe",
+        "imf_upper",
+        "mgal",
+        "nb",
+    ]
+    data = df[params].to_numpy()
+
+    post_csv = save_path + "/posteriors.csv"
+    df[params].to_csv(post_csv, index=False)
+    weights_csv = save_path + "/posterior_weights.csv"
+    df_weights = df.assign(weight=weights)
+    df_weights.to_csv(weights_csv, index=False)
+
+    _save_corner(df[params], df[metric_val], save_path + "/" + metric_val + "_corner.png")
+
+
+def _save_corner(samples, weights, out_path):
+    """
+    Create a corner plot with MCMC-like features using the resampled posterior.
+    - Adds weighted quantiles (16th, 50th, 84th percentiles) for 1D histograms.
+    - Includes 1σ and 2σ contours for 2D distributions.
+    - Applies moderate smoothing for better visualization.
+    - Retains original title formatting and binning.
+    """
+    data = samples.to_numpy()
+    labels = [c.replace("_", " ") for c in samples.columns]
+    title_fmt = ".3g"
+
+    fig = corner.corner(
+        data,
+        labels=labels,
+        weights=weights,
+        quantiles=[0.16, 0.5, 0.84],  # Add quantiles for MCMC-like credibility intervals
+        show_titles=True,  # Enable built-in titles for quantiles
+        title_fmt=title_fmt,
+        bins=40,
+        smooth=0.9,
+        levels=[1 - np.exp(-0.5 * r**2) for r in [1]],  # 1σ and 2σ contours
+    )
+
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+
+
+# Supporting functions
+def compute_weights(loss):
+    arr = np.asarray(loss, dtype=float)
+    resid = arr - np.min(arr)
+    T = np.median(np.abs(resid - np.median(resid))) or 1.0
+    weights = np.exp(-resid / T)
+    weights /= np.sum(weights)
+    return weights, T, 0.0
+
+def weighted_quantile(values, quantiles, sample_weight):
+    values = np.asarray(values, dtype=float)
+    quantiles = np.asarray(quantiles, dtype=float)
+    sample_weight = np.asarray(sample_weight, dtype=float)
+    sample_weight = sample_weight / np.sum(sample_weight)
+    sorter = np.argsort(values)
+    values_sorted = values[sorter]
+    weights_sorted = sample_weight[sorter]
+    cdf = np.cumsum(weights_sorted)
+    quantiles_out = np.interp(quantiles, cdf, values_sorted)
+    return quantiles_out

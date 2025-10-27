@@ -195,18 +195,38 @@ def _ensure_dir(path: Path) -> None:
 
 
 def _save_corner(samples: pd.DataFrame, out_path: Path) -> None:
+    data = samples.to_numpy()
+    labels = [c.replace("_", " ") for c in samples.columns]
+    title_fmt = ".3g"
+
     fig = corner.corner(
-        samples.to_numpy(),
-        labels=[c.replace("_", " ") for c in samples.columns],
-        quantiles=[0.16, 0.5, 0.84],
-        show_titles=True,
-        title_fmt=".3g",
+        data,
+        labels=labels,
+        quantiles=None,  # Removes dashed lines on 1D histograms
+        show_titles=False,  # Disable built-in titles for custom formatting
+        title_fmt=title_fmt,
         bins=40,
         smooth=0.9,
+        levels=[1 - np.exp(-0.5 * r**2) for r in [1, 2]],  # Contours for 1σ and 2σ equivalents only
     )
+
+    # Set custom multiline titles on diagonal axes
+    ndim = data.shape[1]
+    for i in range(ndim):
+        ax_index = int(i * (i + 3) / 2)
+        ax = fig.axes[ax_index]
+        qs = np.percentile(data[:, i], [16, 50, 84])
+        median = qs[1]
+        plus = qs[2] - qs[1]
+        minus = qs[1] - qs[0]
+        fmt = "{{:{}}}".format(title_fmt)
+        title = r"${}$".format(labels[i]) + "\n" + r"${} ^{{+{}}} _{{-{}}}$".format(fmt.format(median), fmt.format(plus), fmt.format(minus))
+        ax.set_title(title)
+
     fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    
 
 def _plot_mdf(
     curves: Sequence[Tuple[np.ndarray, np.ndarray]],

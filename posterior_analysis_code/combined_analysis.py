@@ -32,6 +32,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KernelDensity
 import warnings
 warnings.filterwarnings('ignore')
+from combine_posterior import combine_csvs, combine_histories
 
 from plotting.style import *
 use_paper_style()
@@ -67,6 +68,9 @@ class UncertaintyAnalysis:
         
         # Load data
         self.df = pd.read_csv(results_file)
+
+
+
         self.fitness_col = 'fitness' if 'fitness' in self.df.columns else 'wrmse'
         
         # Define parameter sets
@@ -74,6 +78,14 @@ class UncertaintyAnalysis:
             'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2', 
             'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb'
         ]
+
+        # keep only the columns that actually exist in the CSV
+        cols = [c for c in self.continuous_params if c in self.df.columns]
+
+        # drop rows where any of those cols are NaN or exactly 0
+        mask = self.df[cols].notna().all(axis=1) & (self.df[cols] != 0).all(axis=1)
+        self.df = self.df[mask]
+
         self.categorical_params = [
             'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx'
         ]
@@ -1997,6 +2009,53 @@ if __name__ == "__main__":
     os.makedirs(overlay_dir, exist_ok=True)
 
     export_best_per_folder_csv(chosen, os.path.join(overlay_dir, "best_per_folder.csv"))
+
+
+
+
+    # --- NEW: also run "combine posterior" using the SAME selection ---
+    # reuse the same folders the user just picked
+    selected_pairs = [(name, path) for (name, path, _csvs) in chosen]
+
+    # where the combined catalogue & history will be written (same path the script uses)
+    output_dir = os.path.abspath('bc_combined_MDF')
+    os.makedirs(output_dir, exist_ok=True)
+
+    # combine CSVs
+    combined_df = combine_csvs(selected_pairs)
+
+
+    continuous_params = [
+        'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2', 
+        'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb'
+    ]
+
+    cols = [c for c in continuous_params if c in combined_df.columns]
+    mask = combined_df[cols].notna().all(axis=1) & (combined_df[cols] != 0).all(axis=1)
+    combined_df = combined_df[mask]
+
+
+
+    csv_out = os.path.join(output_dir, 'simulation_results.csv')
+    combined_df.to_csv(csv_out, index=False)
+    print(f"[combine_posterior] wrote: {csv_out}")
+
+    # combine histories if available
+    hist = combine_histories(selected_pairs)
+    if hist:
+        npz_out = os.path.join(output_dir, 'walker_history.npz')
+        np.savez_compressed(
+            npz_out,
+            walker_ids=np.array(hist['walker_ids']),
+            histories=np.array(hist['histories'], dtype=object),
+            mdf_data=np.array(hist['mdf_data'], dtype=object),
+            alpha_data=np.array(hist['alpha_data'], dtype=object),
+            age_data=np.array(hist['age_data'], dtype=object),
+        )
+        print(f"[combine_posterior] wrote: {npz_out}")
+    # --- end NEW ---
+
+
 
 
     # build analyzers for selected

@@ -31,7 +31,7 @@ import plotting.mdf_plotting as mdf_plotting
 import corner
 from smc_demc import Bound, run_smc_demc, de_mh_move
 from loss import *
-from physical_constraints import apply_physics_penalty, apply_physics_penalty_with_model
+from physical_constraints import apply_physics_penalty#, apply_physics_penalty_with_model
 from explore_dearth import voronoi_explore_dearths
 import ast
 from age_meta import age_meta_loss, test_age_meta_loss_function
@@ -1244,28 +1244,20 @@ class GalacticEvolutionGA:
         primary_loss_value = self.selected_loss_function(self,theory_count_array)
 
         if self.obs_age_data_loss_metric is not None:
-            obs_age_loss_value = age_meta_loss(self, age_x_data, age_y_data, self.obs_age_data, self.obs_age_data_loss_metric, dataset=self.obs_age_data_target)
-            primary_loss_value = (obs_age_loss_value * (1.0 - self.mdf_vs_age_weight)) + (primary_loss_value * self.mdf_vs_age_weight)
+            if self.mdf_vs_age_weight < 1.0:            
+                obs_age_loss_value = age_meta_loss(self, age_x_data, age_y_data, self.obs_age_data, self.obs_age_data_loss_metric, dataset=self.obs_age_data_target)
+                primary_loss_value = (obs_age_loss_value * (1.0 - self.mdf_vs_age_weight)) + (primary_loss_value * self.mdf_vs_age_weight)
 
+
+        penalty_factor = apply_physics_penalty(primary_loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data,GCE_model=GCE_model)
 
         if self.physical_constraints_freq > 0:
-            # Apply physics penalty
             if self.physics_timer < self.physical_constraints_freq:
                 self.physics_timer = self.physics_timer + 1
-
             else:
-
                 self.physics_timer = 0
-                penalty_factor = apply_physics_penalty_with_model(
-                    primary_loss_value, 
-                    MDF_x_data, MDF_y_data, 
-                    alpha_arrs, 
-                    age_x_data, age_y_data,
-                    GCE_model=GCE_model
-                )
                 primary_loss_value = primary_loss_value * penalty_factor
 
-        primary_loss_value = np.clip(primary_loss_value,0,1)
 
         # Return the result with a detailed label
         label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
@@ -1795,8 +1787,10 @@ class GalacticEvolutionGA:
         df.to_csv(results_file, index=False)
         print(f"Results saved to: {results_file}")
 
-        mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
-        
+        try:
+            mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
+        except:
+            pass
 
 
 

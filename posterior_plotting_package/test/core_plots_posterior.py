@@ -15,11 +15,8 @@ from posterior_plotting_package.posterior_utils import (
     get_weighted_posterior_samples,
     compute_mdf_ensemble,
     compute_age_feh_ensemble,
-    compute_alpha_ensemble, 
-    posterior_resample
+    compute_alpha_ensemble
 )
-
-from posterior_plotting_package.posterior_utils_density import plot_density_posterior_simple, plot_density_posterior_simple_vertical
 
 from plotting.style import *
 use_paper_style()
@@ -241,8 +238,9 @@ def plot_age_feh_detailed(
         # POSTERIOR MODE: median + 1σ bands
         print(f"Computing posterior ensemble from top {percentile}% of models...")
         
-        #top_df, weights = get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile=percentile)
-        top_df, weights = posterior_resample(results_df, weight_col='posterior_w', fitness_col='fitness', percentile=percentile, resampling='systematic')
+        top_df, weights = get_weighted_posterior_samples(results_df, 
+                                                         fitness_col='fitness', 
+                                                         percentile=percentile)
         
         if top_df is not None and weights is not None:
             # Compute age-[Fe/H] ensemble
@@ -256,11 +254,14 @@ def plot_age_feh_detailed(
                 lower_feh = ensemble['lower']
                 upper_feh = ensemble['upper']
                 
-                # Plot 1σ uncertainty band with density shading
-                plot_density_posterior_simple(ax_main, age_common, median_feh, 
-                                             lower_feh, upper_feh, 
-                                             color='crimson', n_levels=20, 
-                                             zorder=4, label='1σ posterior')
+                # Plot median line
+                ax_main.plot(age_common, median_feh, color='crimson', lw=2.5, 
+                           zorder=5, label='Median model')
+                
+                # Plot 1σ uncertainty band
+                ax_main.fill_between(age_common, lower_feh, upper_feh, 
+                                    color='crimson', alpha=0.25, zorder=4,
+                                    label='1σ posterior')
                 
                 # Store for residuals
                 best_age_gyr = age_common
@@ -566,11 +567,14 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
                 lower_mdf = mdf_ensemble['lower']
                 upper_mdf = mdf_ensemble['upper']
                 
-                # Plot 1σ uncertainty band with density shading
-                plot_density_posterior_simple(ax_main, feh_common, median_mdf,
-                                             lower_mdf, upper_mdf,
-                                             color='crimson', n_levels=20,
-                                             zorder=2, label='1σ posterior')
+                # Plot median line
+                ax_main.plot(feh_common, median_mdf, color='crimson', lw=1.8, 
+                           label='Median model', zorder=3)
+                
+                # Plot 1σ uncertainty band
+                ax_main.fill_between(feh_common, lower_mdf, upper_mdf, 
+                                    color='crimson', alpha=0.25, zorder=2,
+                                    label='1σ posterior')
                 
                 best_x, best_y = feh_common, median_mdf
             else:
@@ -699,11 +703,14 @@ def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=No
                     lower_alpha = alpha_ensemble['lower']
                     upper_alpha = alpha_ensemble['upper']
                     
-                    # Plot 1σ uncertainty band with density shading
-                    plot_density_posterior_simple(ax_main, feh_common, median_alpha,
-                                                 lower_alpha, upper_alpha,
-                                                 color='crimson', n_levels=20,
-                                                 zorder=2, label='1σ posterior')
+                    # Plot median line
+                    ax_main.plot(feh_common, median_alpha, color='crimson', lw=2.5, 
+                               zorder=3, label='Median model')
+                    
+                    # Plot 1σ uncertainty band
+                    ax_main.fill_between(feh_common, lower_alpha, upper_alpha, 
+                                        color='crimson', alpha=0.25, zorder=2,
+                                        label='1σ posterior')
                     
                     best_x, best_y = feh_common, median_alpha
                 else:
