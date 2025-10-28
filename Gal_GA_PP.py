@@ -1012,12 +1012,13 @@ class GalacticEvolutionGA:
     def evaluate(self, individual):
         # Extract parameters from the individual
         # Categorical parameters (indices)
-        comp_idx = int(individual[0])
-        imf_idx = int(individual[1])
-        sn1a_idx = int(individual[2])
-        sy_idx = int(individual[3])
-        sn1ar_idx = int(individual[4])
-        
+        comp_idx  = int(np.clip(int(individual[0]), 0, len(self.comp_array)   - 1))
+        imf_idx   = int(np.clip(int(individual[1]), 0, len(self.imf_array)    - 1))
+        sn1a_idx  = int(np.clip(int(individual[2]), 0, len(self.sn1a_assumptions)   - 1))
+        sy_idx    = int(np.clip(int(individual[3]), 0, len(self.stellar_yield_assumptions)     - 1))
+        sn1ar_idx = int(np.clip(int(individual[4]), 0, len(self.sn1a_rates)  - 1))
+
+
         # Continuous parameters
         sigma_2 = individual[5]
         t_1 = individual[6]

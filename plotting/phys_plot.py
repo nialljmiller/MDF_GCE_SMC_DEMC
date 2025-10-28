@@ -1018,64 +1018,7 @@ def plot_physical_constraints(GalGA, results_df=None, save_path='Physical_Constr
     ax14.grid(True, alpha=0.3, axis='x')
     ax14.set_xlim(0, 15)
     
-    # ======================================================================
-    # PANEL 15: Constraint Summary
-    # ======================================================================
-    ax15 = fig.add_subplot(gs[3, 2:])
-    ax15.axis('off')
-    
-    # Calculate constraint satisfaction
-    is_physical, penalty_factor = pc.check_physical_plausibility(
-        MDF_x, MDF_y_model, alpha_arrs, age_x, age_y,
-        liberal=False, age_meta_check=True
-    )
-    
-    model_is_physical, model_penalty = pc.check_model_physics(GCE_model, liberal=False)
-    
-    # Create summary text
-    summary_text = f"""PHYSICAL CONSTRAINTS VALIDATION SUMMARY
 
-Overall Status: {'✓ PASS' if (is_physical and model_is_physical) else '✗ FAIL'}
-Penalty Factor: {penalty_factor * model_penalty:.3f}
-
-MDF Constraints:
-├─ Peak Location: {'✓' if is_physical else '✗'}
-└─ Low-Metallicity Tail: {'✓' if is_physical else '✗'}
-
-Alpha Element Constraints:
-├─ [Si/Fe] Binned: {'✓' if is_physical else '✗'}
-├─ [Ca/Fe] Binned: {'✓' if is_physical else '✗'}
-├─ [Mg/Fe] Binned: {'✓' if is_physical else '✗'}
-├─ Distribution Peak: {'✓' if is_physical else '✗'}
-└─ Distribution FWHM: {'✓' if is_physical else '✗'}
-
-Age-Metallicity Constraints:
-└─ Young Stars Median: {'✓' if is_physical else '✗'}
-
-Model-Level Constraints:
-├─ Bulge Mass: {'✓' if model_is_physical else '✗'}
-├─ Bulge Age: {'✓' if model_is_physical else '✗'}
-├─ Gas Fraction: {'✓' if model_is_physical else '✗'}
-├─ SFH Peak Time: (commented out in code)
-└─ Mean Stellar Age: (commented out in code)
-
-This plot demonstrates that the best-fit model satisfies
-all physical constraints derived from observations of
-classical bulges and galactic chemical evolution theory.
-"""
-    
-    # Color based on pass/fail
-    box_color = 'lightgreen' if (is_physical and model_is_physical) else 'lightcoral'
-    
-    ax15.text(0.02, 0.99, summary_text, transform=ax15.transAxes, fontsize=11,
-             verticalalignment='top', fontfamily='monospace', linespacing=1.5,
-             bbox=dict(boxstyle="round,pad=0.8", facecolor=box_color,
-                      edgecolor="darkgreen" if (is_physical and model_is_physical) else "darkred",
-                      alpha=0.95, linewidth=2.5))
-    
-    # Add main title
-    fig.suptitle('Physical Constraints Validation for Best-Fit Model',
-                fontsize=18, fontweight='bold', y=0.98)
     
     plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
     plt.close(fig)

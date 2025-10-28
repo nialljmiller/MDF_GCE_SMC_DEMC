@@ -259,7 +259,7 @@ exploration_steps = params['exploration_steps']
 popsize = params['popsize']
 
 if popsize < 0:
-    popsize = cpu_count() * (popsize * -1)
+    popsize = int(cpu_count() * (popsize * -1))
 
 generations = params['generations']
 crossover_probability = params['crossover_probability']

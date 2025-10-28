@@ -12,16 +12,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import corner
 
 # Import posterior utilities
-from posterior_plotting_package.posterior_utils import (
-    get_weighted_posterior_samples,
-    compute_mdf_ensemble,
-    compute_age_feh_ensemble,
-    compute_alpha_ensemble, 
-    posterior_resample,
-    compute_weights
-)
+from posterior_plotting_package.posterior_utils import *
 
-from posterior_plotting_package.posterior_utils_density import plot_density_posterior_simple, plot_density_posterior_simple_vertical
+from posterior_plotting_package.posterior_utils_density import * #plot_density_posterior_simple, plot_density_posterior_simple_vertical
 
 from plotting.style import *
 use_paper_style()
@@ -140,6 +133,11 @@ def choose_cutoff_lognorm_mixture(df_sorted, bins=100, kde_points=1024, em_max_i
     return pct
 
 
+
+
+
+
+
 # Smoother (kept from original)
 def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     mask = np.isfinite(x_data) & np.isfinite(y_data)
@@ -148,6 +146,8 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     if len(x) < 10:
         return x_data, y_data
     return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
+
+
 
 
 
@@ -880,24 +880,3 @@ def _save_corner(samples, weights, out_path):
 
 
 
-
-# Supporting functions
-def compute_weights(loss):
-    arr = np.asarray(loss, dtype=float)
-    resid = arr - np.min(arr)
-    T = np.median(np.abs(resid - np.median(resid))) or 1.0
-    weights = np.exp(-resid / T)
-    weights /= np.sum(weights)
-    return weights, T, 0.0
-
-def weighted_quantile(values, quantiles, sample_weight):
-    values = np.asarray(values, dtype=float)
-    quantiles = np.asarray(quantiles, dtype=float)
-    sample_weight = np.asarray(sample_weight, dtype=float)
-    sample_weight = sample_weight / np.sum(sample_weight)
-    sorter = np.argsort(values)
-    values_sorted = values[sorter]
-    weights_sorted = sample_weight[sorter]
-    cdf = np.cumsum(weights_sorted)
-    quantiles_out = np.interp(quantiles, cdf, values_sorted)
-    return quantiles_out

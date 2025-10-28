@@ -143,6 +143,10 @@ def check_alpha_distribution_properties(alpha_arrs, liberal=False):
 
 
 
+
+
+
+
 def check_simple_alpha_constraints(alpha_arrs, liberal=False):
     """
     Simple three-bin check for alpha element abundances.
@@ -248,6 +252,12 @@ def check_simple_alpha_constraints(alpha_arrs, liberal=False):
 
 
 
+
+
+
+
+
+
 def check_bulge_mass(GCE_model, liberal=False, min_mass=1e9, max_mass=1e11):
     """
     Check that the final stellar (bulge) mass is within reasonable bounds.
@@ -305,6 +315,15 @@ def check_bulge_mass(GCE_model, liberal=False, min_mass=1e9, max_mass=1e11):
     return is_physical, penalty_factor
 
 
+
+
+
+
+
+
+
+
+
 def check_bulge_age(GCE_model, liberal=False, min_age_gyr=10.0):
     """
     Check that the final age of the system is old enough for a classical bulge.
@@ -351,6 +370,16 @@ def check_bulge_age(GCE_model, liberal=False, min_age_gyr=10.0):
             is_physical = False
             
     return is_physical, penalty_factor
+
+
+
+
+
+
+
+
+
+
 
 
 def check_gas_fraction(GCE_model, liberal=False, max_gas_fraction=0.5):
@@ -408,6 +437,30 @@ def check_gas_fraction(GCE_model, liberal=False, max_gas_fraction=0.5):
             is_physical = False
             
     return is_physical, penalty_factor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

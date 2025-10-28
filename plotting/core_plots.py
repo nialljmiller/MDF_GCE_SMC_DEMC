@@ -354,6 +354,10 @@ def plot_age_feh_detailed(
     return fig
 
 
+
+
+
+
 def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None):
     """
     All MDF curves (grey), best model (red), data points (black x), + residuals panel.
@@ -396,6 +400,8 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
     ax_main.xaxis.set_label_position("top")
     ax_main.set_xlabel("[Fe/H]")
     ax_main.tick_params(axis="x", bottom=False)
+
+    
 
     # Residuals (model - data) on a shared Fe/H grid (simple linear interp of best model)
     if best_x is not None:

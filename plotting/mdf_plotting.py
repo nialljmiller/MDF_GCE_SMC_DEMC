@@ -1,11 +1,3 @@
-# mdf_plotting.py — unified plotting, clean & explicit, no error handling
-# Assumes all required inputs/files exist and are valid.
-# Organization:
-#   0) Imports & style
-#   1) Small utilities
-#   2) Core plotters (MDF, AMR/age–[Fe/H], 4× alpha, alpha histos, SFR/mass)
-#   3) Orchestrator: generate_all_plots(...)
-
 from __future__ import annotations
 
 import os
@@ -27,11 +19,8 @@ from plotting.omni_plot import *              # omni info figure (if you use it)
 from plotting.core_plots import *
 from plotting.phys_plot import *
 
-
-
 from posterior_plotting_package.core_plots_posterior import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha, plot_corner
 from posterior_plotting_package.phys_plot_posterior import plot_real_infall_physics
-
 
 from plotting.style import *
 use_paper_style()
@@ -165,21 +154,33 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     ####################
 
 
+    # ----------------------------
+    # Omni figures
+    # ----------------------------
+    print("Generating dashboard figure...")
+    plot_omni_info_figure(
+        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
+        feh, normalized_count, df
+    )
+    plot_omni_figure(
+        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
+        feh, normalized_count, df
+    )
+
+    print("Omni info figure generated!")
 
 
-    # Core plots (fast)
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'fitness')
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'physics_penalty')
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=5000000, metric_val = 'confidence')    
 
-    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=20, percentile=-1)
+    print("Generating posterior figures...")
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'fitness')
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
+    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
 
-    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
+    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=100)
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=100)
 
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
-
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
-
+    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=100)
 
 
     # ----------------------------
@@ -207,6 +208,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # ----------------------------
     # Binned loss / marginals / gradients
     # ----------------------------
+    print("Generating loss map figures...")
     analysis_dir = os.path.join(GalGA.output_path, 'analysis')
     os.makedirs(analysis_dir, exist_ok=True)
 
@@ -391,26 +393,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
                                              thresholds=[0.01, 0.1, 0.001],
                                              loss_metric=metric)
     except:
-        pass
-
-    # ----------------------------
-    # Omni figures
-    # ----------------------------
-    print("Generating dashboard figure...")
-    plot_omni_info_figure(
-        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-        feh, normalized_count, df
-    )
-    plot_omni_figure(
-        GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-        feh, normalized_count, df
-    )
-
-    #plot_omni_figure_enhanced(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,feh, normalized_count, df)
-
-    #plot_omni_figure_ultimate(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,feh, normalized_count, df)
-
-    print("Omni info figure generated!")
+        print("Failed Generating walker evolution plots")
 
 
 

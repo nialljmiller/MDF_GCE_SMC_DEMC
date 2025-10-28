@@ -339,15 +339,3 @@ def plot_density_posterior_simple_vertical(ax, y, median, lower, upper, color='c
                          label='Median model')[0]
     
     return median_line
-
-
-if __name__ == '__main__':
-    # Test the density shading functions
-    print("Density-based posterior visualization utilities loaded successfully.")
-    print("\nAvailable functions:")
-    print("  - compute_density_at_percentiles()")
-    print("  - plot_density_posterior_band()")
-    print("  - plot_density_posterior_band_vertical()")
-    print("  - plot_density_posterior_simple()")
-    print("  - plot_density_posterior_simple_vertical()")
-
