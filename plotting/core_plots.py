@@ -17,15 +17,22 @@ use_paper_style()
 
 
 # put near top of core_plots.py
-def _best_index_by_params(results_df):
-    use_col = 'confidence' if 'confidence' in results_df.columns else 'fitness'
-    if use_col not in results_df.columns:
-        # fall back to first row only if absolutely necessary
+def _best_index_by_params(results_df, metric_col: str = 'fitness'):
+    if results_df is None or results_df.empty:
         return 0
-    return int(results_df[use_col].idxmin())
+    preferred = metric_col if metric_col in results_df.columns else None
+    if preferred is None and 'fitness' in results_df.columns:
+        preferred = 'fitness'
+    if preferred is None and 'confidence' in results_df.columns:
+        preferred = 'confidence'
+    if preferred is None:
+        return int(results_df.index[0])
+    series = pd.to_numeric(results_df[preferred], errors='coerce')
+    return int(series.idxmin())
 
-def _best_param_tuple(results_df):
-    i = _best_index_by_params(results_df)
+
+def _best_param_tuple(results_df, metric_col: str = 'fitness'):
+    i = _best_index_by_params(results_df, metric_col=metric_col)
     r = results_df.loc[i]
     return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
 
@@ -41,7 +48,18 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
 
 
 
-def plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=None, save_path=None, n_bins=12, feh_bins=None, age_limit_gyr=14.2):
+def plot_age_feh_detailed(
+    GalGA,
+    Fe_H,
+    age_Joyce,
+    age_Bensby,
+    results_df=None,
+    save_path=None,
+    n_bins=12,
+    feh_bins=None,
+    age_limit_gyr=14.2,
+    metric_col: str = 'fitness',
+):
 
     if save_path is None: save_path = GalGA.output_path + 'Age_Metallicity_all.png'
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
@@ -50,7 +68,7 @@ def plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=None, s
     age_Joyce = np.asarray(age_Joyce, float)
     age_Bensby = np.asarray(age_Bensby, float)
 
-    best_params, best_idx = _best_param_tuple(results_df)
+    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
 
     fig = plt.figure(figsize=(18, 11))
     gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[3, 1], wspace=0.0, hspace=0.0, left=0.07, right=0.97, top=0.96, bottom=0.08)
@@ -157,7 +175,14 @@ def plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=None, s
 
 
 
-def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None):
+def plot_mdf_curves(
+    GalGA,
+    feh,
+    normalized_count,
+    results_df=None,
+    save_path=None,
+    metric_col: str = 'fitness',
+):
     import os, numpy as np, matplotlib.pyplot as plt
     from scipy.interpolate import PchipInterpolator
 
@@ -165,7 +190,7 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
         save_path = os.path.join(GalGA.output_path, "MDF_multiple_results.png")
 
     # pick true best and the matching curve
-    best_params, best_idx = _best_param_tuple(results_df)
+    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
 
     fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(9, 8),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
@@ -213,7 +238,17 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
 
 
 
-def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=None, save_path=None):
+def plot_four_panel_alpha(
+    GalGA,
+    Fe_H,
+    Mg_Fe,
+    Si_Fe,
+    Ca_Fe,
+    Ti_Fe,
+    results_df=None,
+    save_path=None,
+    metric_col: str = 'fitness',
+):
     import os, numpy as np, matplotlib.pyplot as plt
     from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -222,8 +257,7 @@ def plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=No
     element_names = ['Mg', 'Si', 'Ca', 'Ti']
     observational_data = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
 
-    bm = results_df.iloc[0]
-    best_params = (float(bm['sigma_2']), float(bm['t_2']), float(bm['infall_2']))
+    best_params, _ = _best_param_tuple(results_df, metric_col=metric_col)
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), sharex=False, sharey=False)
     fig.subplots_adjust(hspace=0.1, wspace=0.1, left=0.07, right=0.94, top=0.97, bottom=0.08)

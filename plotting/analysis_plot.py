@@ -20,6 +20,7 @@ from sklearn.metrics import silhouette_score
 
 
 
+from plotting.data_utils import load_results_dataframe
 from plotting.style import *
 use_paper_style()
 
@@ -30,9 +31,8 @@ def ensure_analysis_dir(GalGA):
 
 def extract_metrics(results_file):
     """Extract metrics from CSV file for plotting"""
-    # Load the dataframe directly
-    df = pd.read_csv(results_file)
-    
+    df, metric_col = load_results_dataframe(results_file)
+
     comp_idx_vals    = df['comp_idx'].values
     imf_idx_vals     = df['imf_idx'].values
     sn1a_idx_vals    = df['sn1a_idx'].values
@@ -50,13 +50,24 @@ def extract_metrics(results_file):
     nb_vals          = df['nb'].values
 
     # Extract metrics
-    metrics_dict = {}
-    #for metric in ['wrmse', 'mae', 'mape', 'huber', 'cosine', 'log_cosh', 'ks', 'ensemble', 'fitness']:
-    for metric in ['fitness']:
-        if metric in df.columns:
-            metrics_dict[metric] = df[metric].values
-    
-    return sigma_2_vals, t_1_vals, t_2_vals, infall_1_vals, infall_2_vals, sfe_vals, delta_sfe_vals, imf_upper_vals, mgal_vals, nb_vals, metrics_dict, df
+    metrics_dict = {metric_col: df[metric_col].to_numpy()}
+    if 'fitness' in df.columns:
+        metrics_dict.setdefault('fitness', df['fitness'].to_numpy())
+
+    return (
+        sigma_2_vals,
+        t_1_vals,
+        t_2_vals,
+        infall_1_vals,
+        infall_2_vals,
+        sfe_vals,
+        delta_sfe_vals,
+        imf_upper_vals,
+        mgal_vals,
+        nb_vals,
+        metrics_dict,
+        df,
+    )
 
 
 
