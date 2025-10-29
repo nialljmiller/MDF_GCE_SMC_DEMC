@@ -12,6 +12,7 @@ about the two-infall mechanism physics, including:
 """
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
@@ -584,9 +585,21 @@ def plot_key_metrics(ax, physics, params_dict):
 
 
 
-def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-                          feh_mdf, normalized_count_mdf, results_df=None,
-                          save_path=None):
+def plot_omni_info_figure(
+    GalGA,
+    Fe_H,
+    age_Joyce,
+    age_Bensby,
+    Mg_Fe,
+    Si_Fe,
+    Ca_Fe,
+    Ti_Fe,
+    feh_mdf,
+    normalized_count_mdf,
+    results_df=None,
+    save_path=None,
+    metric_col: str = 'fitness',
+):
     """
     Create a dashboard showing the best-fit model parameters and performance
     across all key observational diagnostics.
@@ -625,9 +638,8 @@ def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_F
 
     # Determine best model parameters
     if results_df is not None and not results_df.empty:
-        bm = results_df.iloc[0]
-        best_params = (bm['sigma_2'], bm['t_2'], bm['infall_2'])
-        best_row = bm
+        best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
+        best_row = results_df.loc[best_idx]
     else:
         r = GalGA.results[0]
         best_params = (r[5], r[7], r[9])
@@ -862,271 +874,23 @@ def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_F
     return fig
 
 
-
-
-
-def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-                          feh_mdf, normalized_count_mdf, results_df=None,
-                          save_path=None):
-    """
-    Create a dashboard showing the best-fit model parameters and performance
-    across all key observational diagnostics.
-    Parameters:
-    -----------
-    GalGA : Galactic Evolution GA object
-    Fe_H, age_Joyce, age_Bensby : observational age-metallicity data
-    Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe : observational alpha element data
-    feh_mdf, normalized_count_mdf : observational MDF data
-    results_df : DataFrame with model results
-    save_path : output file path
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from scipy.interpolate import CubicSpline, interp1d
-    from scipy.stats import gaussian_kde, binned_statistic
-    from matplotlib.gridspec import GridSpec
-    import os
-    if save_path is None:
-        save_path = GalGA.output_path + 'Omni_Info_Figure.png'
-    # Ensure we have the required data
-    if not hasattr(GalGA, 'age_data') or len(GalGA.age_data) == 0:
-        print("No age data available for plotting")
-        return None
-    if not hasattr(GalGA, 'mdf_data') or len(GalGA.mdf_data) == 0:
-        print("No MDF data available for plotting")
-        return None
-    if not hasattr(GalGA, 'alpha_data') or len(GalGA.alpha_data) == 0:
-        print("No alpha data available for plotting")
-        return None
-    # Determine best model parameters
-    if results_df is not None and not results_df.empty:
-        bm = results_df.iloc[0]
-        best_params = (bm['sigma_2'], bm['t_2'], bm['infall_2'])
-        best_row = bm
-    else:
-        r = GalGA.results[0]
-        # Create a mock row for parameter display
-        col_names = [
-            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
-            'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
-            'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
-            'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
-            'cosine', 'log_cosh', 'fitness'
-        ]
-        best_row = dict(zip(col_names, r))
-    # Create figure with custom layout
-    fig = plt.figure(figsize=(20, 16))
-    gs = GridSpec(4, 6, figure=fig, hspace=0.3, wspace=0.3,
-                  left=0.05, right=0.98, top=0.95, bottom=0.05)
-    # =====================================================
-    # PANEL 1: MODEL PARAMETERS (Top Left)
-    # =====================================================
-    ax_params = fig.add_subplot(gs[0, :2])
-    ax_params.axis('off')
-    # Add categorical params
-    comp_idx = int(best_row['comp_idx'])
-    imf_idx = int(best_row['imf_idx'])
-    sn1a_idx = int(best_row['sn1a_idx'])
-    sy_idx = int(best_row['sy_idx'])
-    sn1ar_idx = int(best_row['sn1ar_idx'])
-    # Create parameter text
-    param_text = "BEST-FIT MODEL PARAMETERS\n" + "="*35 + "\n"
-    param_text += f"sigma_2 (second infall ratio): {best_row['sigma_2']:.1f}\n"
-    param_text += f"t_1 (first infall time): {best_row['t_1']:.3f} Gyr\n"
-    param_text += f"t_2 (second infall time): {best_row['t_2']:.3f} Gyr\n"
-    param_text += f"tau_1 (first infall timescale): {best_row['infall_1']:.3f} Gyr\n"
-    param_text += f"tau_2 (second infall timescale): {best_row['infall_2']:.3f} Gyr\n"
-    param_text += f"SFE (star formation efficiency): {best_row['sfe']:.5f}\n"
-    param_text += f"Delta SFE (SFE change at t_2): {best_row['delta_sfe']:.3f}\n"
-    param_text += f"IMF upper limit: {best_row['imf_upper']:.1f} M_sun\n"
-    param_text += f"Galaxy mass: {best_row['mgal']:.2e} M_sun\n"
-    param_text += f"SN Ia rate: {best_row['nb']:.2e} per M_sun\n"
-    param_text += f"Composition: {GalGA.comp_array[comp_idx]}\n"
-    param_text += f"IMF: {GalGA.imf_array[imf_idx]}\n"
-    param_text += f"SN Ia Assumption: {GalGA.sn1a_assumptions[sn1a_idx]}\n"
-    param_text += f"Stellar Yields: {GalGA.stellar_yield_assumptions[sy_idx]}\n"
-    param_text += f"SN Ia Rate: {GalGA.sn1a_rates[sn1ar_idx]}\n"
-    ax_params.text(0.05, 0.95, param_text, transform=ax_params.transAxes,
-                   fontsize=12, verticalalignment='top', fontfamily='monospace',
-                   bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.8))
-
-
-
-    # =====================================================
-    # PANEL 2: FIT QUALITY METRICS (Top Middle)
-    # =====================================================
-    ax_metrics = fig.add_subplot(gs[0, 2:4])
-    ax_metrics.axis('off')
-    # Create metrics text
-    metrics_text = "FIT QUALITY METRICS\n" + "="*25 + "\n"
-    metrics_text += f"Primary Loss (Fitness): {best_row['fitness']:.4f}\n"
-    metrics_text += f"WRMSE: {best_row['wrmse']:.4f}\n"
-    metrics_text += f"MAE: {best_row['mae']:.4f}\n"
-    metrics_text += f"Huber Loss: {best_row['huber']:.4f}\n"
-    metrics_text += f"Cosine Similarity: {best_row['cosine']:.4f}\n"
-    metrics_text += f"KS Distance: {best_row['ks']:.4f}\n"
-    metrics_text += f"Ensemble Metric: {best_row['ensemble']:.4f}\n"
-    ax_metrics.text(0.05, 0.95, metrics_text, transform=ax_metrics.transAxes,
-                    fontsize=12, verticalalignment='top', fontfamily='monospace',
-                    bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.8))
-    # =====================================================
-    # PANEL 3: MODEL SUMMARY (Top Right)
-    # =====================================================
-    ax_summary = fig.add_subplot(gs[0, 4:])
-    ax_summary.axis('off')
-    # Interpret the parameters
-    if best_row['t_2'] < 2.0:
-        infall_interp = "Early second infall"
-    elif best_row['t_2'] < 8.0:
-        infall_interp = "Mid-age second infall"
-    else:
-        infall_interp = "Late second infall"
-    if best_row['delta_sfe'] > 0:
-        sfe_interp = "SFE increases at second infall"
-    elif best_row['delta_sfe'] < -0.01:
-        sfe_interp = "SFE decreases at second infall"
-    else:
-        sfe_interp = "SFE unchanged at second infall"
-    second_infall_speed = "Faster" if best_row['infall_2'] < best_row['infall_1'] else "Slower"
-    # Create model summary
-    summary_text = "MODEL INTERPRETATION\n" + "="*25 + "\n"
-    summary_text += f"* {infall_interp}\n"
-    summary_text += f"* {sfe_interp}\n"
-    summary_text += f"* First infall: tau = {best_row['infall_1']:.2f} Gyr\n"
-    summary_text += f"* Second infall: tau = {best_row['infall_2']:.2f} Gyr\n"
-    summary_text += f"* {second_infall_speed} second infall\n"
-    summary_text += f"* Total models evaluated: {len(GalGA.results)}\n"
-    ax_summary.text(0.05, 0.95, summary_text, transform=ax_summary.transAxes,
-                    fontsize=12, verticalalignment='top', fontfamily='monospace',
-                    bbox=dict(boxstyle="round,pad=0.5", facecolor="lightyellow", alpha=0.8))
-    # =====================================================
-    # PANEL 4: METALLICITY DISTRIBUTION FUNCTION
-    # =====================================================
-    ax_mdf = fig.add_subplot(gs[1, :3])
-    # Find best MDF model
-    best_mdf_x = None
-    best_mdf_y = None
-    for mdf_data, res in zip(GalGA.mdf_data, GalGA.results):
-        params = (res[5], res[7], res[9])
-        is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
-        if is_best:
-            best_mdf_x, best_mdf_y = mdf_data
-            break
-    if best_mdf_x is not None:
-        ax_mdf.plot(best_mdf_x, best_mdf_y, 'r-', linewidth=3, label='Best Model', zorder=3)
-    ax_mdf.plot(feh_mdf, normalized_count_mdf, 'ko', markersize=6, label='Observed', zorder=2)
-    ax_mdf.set_xlabel('[Fe/H]', fontsize=14)
-    ax_mdf.set_ylabel('Normalized Number Density', fontsize=14)
-    ax_mdf.set_xlim(-2, 1)
-    ax_mdf.legend(fontsize=12)
-    ax_mdf.grid(True, alpha=0.3)
-    # =====================================================
-    # PANEL 5: AGE-METALLICITY RELATION
-    # =====================================================
-    ax_age = fig.add_subplot(gs[1, 3:])
-    # Find best age-metallicity model
-    best_age_x = None
-    best_age_y = None
-    for age_data, res in zip(GalGA.age_data, GalGA.results):
-        params = (res[5], res[7], res[9])
-        is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
-        if is_best:
-            x_age_raw, y_feh = age_data
-            best_age_x = (x_age_raw[-1] / 1e9) - np.array(x_age_raw) / 1e9
-            best_age_y = np.array(y_feh)
-            break
-    # Plot observational data
-    ax_age.scatter(age_Joyce, Fe_H, marker='*', s=40, color='blue', alpha=0.6, label='Joyce et al.')
-    ax_age.scatter(age_Bensby, Fe_H, marker='^', s=40, color='orange', alpha=0.6, label='Bensby et al.')
-    # Plot best model
-    if best_age_x is not None:
-        ax_age.plot(best_age_x, best_age_y, 'r-', linewidth=3, label='Best Model', zorder=3)
-    ax_age.set_xlabel('Age (Gyr)', fontsize=14)
-    ax_age.set_ylabel('[Fe/H]', fontsize=14)
-    ax_age.set_xlim(0, 14)
-    ax_age.set_ylim(-2, 1)
-    ax_age.legend(fontsize=11)
-    ax_age.grid(True, alpha=0.3)
-    # =====================================================
-    # PANEL 6-9: ALPHA ELEMENT ABUNDANCES (2x2 grid)
-    # =====================================================
-    alpha_elements = ['Mg', 'Si', 'Ca', 'Ti']
-    alpha_obs_data = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
-    for idx, (element, obs_data) in enumerate(zip(alpha_elements, alpha_obs_data)):
-        row = 2 + idx // 2
-        col = (idx % 2) * 3
-        ax_alpha = fig.add_subplot(gs[row, col:col+3])
-        # Find best alpha model for this element
-        best_alpha_x = None
-        best_alpha_y = None
-        for alpha_arrs, res in zip(GalGA.alpha_data, GalGA.results):
-            params = (res[5], res[7], res[9])
-            is_best = all(abs(p - b) < 1e-5 for p, b in zip(params, best_params))
-            if is_best and idx < len(alpha_arrs):
-                best_alpha_x, best_alpha_y = alpha_arrs[idx]
-                break
-        # Clean observational data
-        obs_clean = np.where((obs_data >= -2.0) & (obs_data <= 2.0), obs_data, np.nan)
-        mask = np.isfinite(Fe_H) & np.isfinite(obs_clean)
-        # Plot observational data
-        if np.sum(mask) > 10:
-            ax_alpha.scatter(Fe_H[mask], obs_clean[mask], s=20, alpha=0.6,
-                           color='gray', label='Observed', zorder=1)
-        # Plot best model
-        if best_alpha_x is not None:
-            ax_alpha.plot(best_alpha_x, best_alpha_y, 'r-', linewidth=3,
-                         label='Best Model', zorder=3)
-        ax_alpha.set_xlabel('[Fe/H]', fontsize=12)
-        ax_alpha.set_ylabel(f'[{element}/Fe]', fontsize=12)
-        ax_alpha.set_xlim(-2, 1)
-        ax_alpha.set_ylim(-0.6, 0.8)
-        ax_alpha.legend(fontsize=10, loc='upper right')
-        ax_alpha.grid(True, alpha=0.3)
-        # Add element label
-        ax_alpha.text(0.05, 0.9, element, transform=ax_alpha.transAxes,
-                     fontsize=16, fontweight='bold',
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
-    # =====================================================
-    # FINAL TOUCHES
-    # =====================================================
-    # Add a subtle background color to distinguish sections
-    fig.patch.set_facecolor('white')
-    # Save the figure
-    dir_path = os.path.dirname(save_path) or '.'
-    os.makedirs(dir_path, exist_ok=True)
-    plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.close(fig)
-    print(f"dashboard saved to {save_path}")
-    print(f"Best-fit parameters:")
-    print(f" sigma_2 = {best_row['sigma_2']:.1f}")
-    print(f" t_2 = {best_row['t_2']:.3f} Gyr")
-    print(f" tau_2 = {best_row['infall_2']:.3f} Gyr")
-    print(f" SFE = {best_row['sfe']:.5f}")
-    print(f" Fitness = {best_row['fitness']:.4f}")
-    return fig
-
-
-
-
-
-
-
-
-
-
-# put near top of core_plots.py
-def _best_index_by_params(results_df):
-    use_col = 'confidence' if 'confidence' in results_df.columns else 'fitness'
-    if use_col not in results_df.columns:
-        # fall back to first row only if absolutely necessary
+def _best_index_by_params(results_df, metric_col: str = 'fitness'):
+    if results_df is None or results_df.empty:
         return 0
-    return int(results_df[use_col].idxmin())
+    preferred = metric_col if metric_col in results_df.columns else None
+    if preferred is None and 'fitness' in results_df.columns:
+        preferred = 'fitness'
+    if preferred is None and 'confidence' in results_df.columns:
+        preferred = 'confidence'
+    if preferred is None:
+        return int(results_df.index[0])
+    series = pd.to_numeric(results_df[preferred], errors='coerce')
+    return int(series.idxmin())
 
-def _best_param_tuple(results_df):
-    i = _best_index_by_params(results_df)
+
+def _best_param_tuple(results_df, metric_col: str = 'fitness'):
+    i = _best_index_by_params(results_df, metric_col=metric_col)
     r = results_df.loc[i]
-    print(df[['loss','fitness','wrmse','ks','sigma_2','t_2','infall_2']].head(5))
-    print(df[0]['loss','fitness','wrmse','ks','sigma_2','t_2','infall_2'])
     return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
 
 
@@ -1134,8 +898,19 @@ def _best_param_tuple(results_df):
 
 
 def plot_omni_figure(
-    GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
-    feh_mdf, normalized_count_mdf, results_df=None, save_path=None
+    GalGA,
+    Fe_H,
+    age_Joyce,
+    age_Bensby,
+    Mg_Fe,
+    Si_Fe,
+    Ca_Fe,
+    Ti_Fe,
+    feh_mdf,
+    normalized_count_mdf,
+    results_df=None,
+    save_path=None,
+    metric_col: str = 'fitness',
 ):
     """
     ApJ-clean figure: MDF (top-left), AMR (top-right), 4×alpha panels (bottom).
@@ -1153,7 +928,7 @@ def plot_omni_figure(
     if save_path is None:
         save_path = os.path.join(getattr(GalGA, "output_path", ""), " Omni_Info_Figure_ApJ.png")
 
-    best_params, best_idx = _best_param_tuple(results_df)
+    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
 
 
     # ------ Figure layout (tight, no wasted whitespace) ------
