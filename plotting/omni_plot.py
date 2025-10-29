@@ -641,6 +641,10 @@ def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_F
         ]
         best_row = dict(zip(col_names, r))
 
+
+
+
+
     # Create figure with custom layout
     fig = plt.figure(figsize=(20, 16))
     gs = GridSpec(4, 6, figure=fig, hspace=0.3, wspace=0.3,
@@ -1110,6 +1114,25 @@ def plot_omni_info_figure(GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_F
 
 
 
+# put near top of core_plots.py
+def _best_index_by_params(results_df):
+    use_col = 'confidence' if 'confidence' in results_df.columns else 'fitness'
+    if use_col not in results_df.columns:
+        # fall back to first row only if absolutely necessary
+        return 0
+    return int(results_df[use_col].idxmin())
+
+def _best_param_tuple(results_df):
+    i = _best_index_by_params(results_df)
+    r = results_df.loc[i]
+    print(df[['loss','fitness','wrmse','ks','sigma_2','t_2','infall_2']].head(5))
+    print(df[0]['loss','fitness','wrmse','ks','sigma_2','t_2','infall_2'])
+    return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
+
+
+
+
+
 def plot_omni_figure(
     GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
     feh_mdf, normalized_count_mdf, results_df=None, save_path=None
@@ -1130,14 +1153,8 @@ def plot_omni_figure(
     if save_path is None:
         save_path = os.path.join(getattr(GalGA, "output_path", ""), " Omni_Info_Figure_ApJ.png")
 
+    best_params, best_idx = _best_param_tuple(results_df)
 
-    # ------ Select best model tuple ------
-    if results_df is not None and hasattr(results_df, "empty") and not results_df.empty:
-        bm = results_df.iloc[0]
-        best_params = (bm["sigma_2"], bm["t_2"], bm["infall_2"])
-    else:
-        r = GalGA.results[0]
-        best_params = (r[5], r[7], r[9])
 
     # ------ Figure layout (tight, no wasted whitespace) ------
     fig = plt.figure(figsize=(15, 8))  # ApJ 2-col width

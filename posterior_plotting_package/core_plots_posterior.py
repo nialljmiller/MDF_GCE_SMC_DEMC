@@ -28,6 +28,9 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
 
 
+
+
+
 def post_plot_age_feh_detailed(
     GalGA,
     Fe_H,

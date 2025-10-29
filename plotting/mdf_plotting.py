@@ -142,9 +142,12 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
         print(f"Unable to load {results_file}: {exc}")
         df = pd.DataFrame()
 
+
+    #'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber','cosine', 'log_cosh', 'fitness',
+    df['fitness'] = df['mae']
     #df['fitness'] = df['fitness'].values/df['physics_penalty'].values
     #df['physics_penalty'] = df['physics_penalty'] + 1.0
-    df['confidence'] = df['fitness'].values * df['physics_penalty'].values
+    df['confidence'] = df['fitness']#.values * df['physics_penalty'].values
 
 
     ####################
@@ -197,9 +200,9 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
     plt.close('all')
 
-    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
-    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
-    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
+    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
+    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=100)
+    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=100)
     plt.close('all')
 
     post_plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=-1)

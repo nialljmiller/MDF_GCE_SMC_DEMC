@@ -16,6 +16,21 @@ use_paper_style()
 
 
 
+# put near top of core_plots.py
+def _best_index_by_params(results_df):
+    use_col = 'confidence' if 'confidence' in results_df.columns else 'fitness'
+    if use_col not in results_df.columns:
+        # fall back to first row only if absolutely necessary
+        return 0
+    return int(results_df[use_col].idxmin())
+
+def _best_param_tuple(results_df):
+    i = _best_index_by_params(results_df)
+    r = results_df.loc[i]
+    return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
+
+
+
 
 def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     mask = np.isfinite(x_data) & np.isfinite(y_data)
@@ -35,8 +50,7 @@ def plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=None, s
     age_Joyce = np.asarray(age_Joyce, float)
     age_Bensby = np.asarray(age_Bensby, float)
 
-    r0 = results_df.iloc[0]
-    best_params = (float(r0['sigma_2']), float(r0['t_2']), float(r0['infall_2']))
+    best_params, best_idx = _best_param_tuple(results_df)
 
     fig = plt.figure(figsize=(18, 11))
     gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[3, 1], wspace=0.0, hspace=0.0, left=0.07, right=0.97, top=0.96, bottom=0.08)
@@ -139,77 +153,61 @@ def plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=None, s
 
 
 
+
+
+
+
 def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None):
-    import os
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from scipy.interpolate import interp1d
+    import os, numpy as np, matplotlib.pyplot as plt
+    from scipy.interpolate import PchipInterpolator
 
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "MDF_multiple_results.png")
 
-    # ---- choose best by parameter match, not index ----
-    r0 = results_df.iloc[0]
-    best_params = (float(r0["sigma_2"]), float(r0["t_2"]), float(r0["infall_2"]))
+    # pick true best and the matching curve
+    best_params, best_idx = _best_param_tuple(results_df)
 
-    tol = 1e-10
-    best_idx = None
-    for i, res in enumerate(GalGA.results):
-        if (abs(float(res[5]) - best_params[0]) < tol and
-            abs(float(res[7]) - best_params[1]) < tol and
-            abs(float(res[9]) - best_params[2]) < tol):
-            best_idx = i
-            break
-    if best_idx is None:
-        best_idx = 0  # minimal fallback
+    fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(9, 8),
+        gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
 
-    # ---- figure: main + residuals ----
-    fig, (ax_main, ax_res) = plt.subplots(
-        2, 1, figsize=(9, 8),
-        gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
-    )
-
-    # gray background curves
+    # background curves
     n_all = len(GalGA.mdf_data)
     alpha = max(0.02, min(0.6, 8.0 / max(1, n_all)))
     for i, (x, y) in enumerate(GalGA.mdf_data):
-        if i == best_idx:
-            continue
+        if i == best_idx: continue
         ax_main.plot(x, y, color="0.75", alpha=0.15 * alpha, lw=0.8, zorder=1)
 
-    # best curve evaluated on the OBSERVATIONAL feh grid
+    # evaluate best curve on the DATA grid and peak-normalize
     bx, by = GalGA.mdf_data[best_idx]
-    f_best = interp1d(np.asarray(bx, float), np.asarray(by, float),
-                      kind="linear", bounds_error=False, fill_value=0.0)
-    y_best_on_feh = f_best(np.asarray(feh, float))
-    m = np.isfinite(y_best_on_feh)
-    if m.any():
-        y_best_on_feh = y_best_on_feh / y_best_on_feh[m].max()
+    bx = np.asarray(bx, float); by = np.clip(np.asarray(by, float), 0.0, None)
+    interp = PchipInterpolator(bx, by, extrapolate=False)
+    y_best = interp(np.asarray(feh, float))
+    y_best = np.where(np.isfinite(y_best), y_best, 0.0)
+    y_best /= (y_best.max() if y_best.max() > 0 else 1.0)
 
-    # draw best + data
-    ax_main.plot(feh, y_best_on_feh, color="crimson", lw=1.8, label="Model", zorder=3)
+    ax_main.plot(feh, y_best, color="crimson", lw=1.8, label="Model", zorder=3)
     ax_main.plot(feh, normalized_count, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
 
     ax_main.set_xlim(-2, 1)
     ax_main.set_ylabel("Normalized number")
     ax_main.legend(loc="upper left", fontsize=9, handlelength=1.6)
-    ax_main.xaxis.set_ticks_position("top")
-    ax_main.xaxis.set_label_position("top")
-    ax_main.set_xlabel("[Fe/H]")
-    ax_main.tick_params(axis="x", bottom=False)
+    ax_main.xaxis.set_ticks_position("top"); ax_main.xaxis.set_label_position("top")
+    ax_main.set_xlabel("[Fe/H]"); ax_main.tick_params(axis="x", bottom=False)
 
-    # residuals on the same feh grid
-    resids = y_best_on_feh - np.asarray(normalized_count, float)
+    # residuals
+    res = y_best - np.asarray(normalized_count, float)
     ax_res.axhline(0.0, ls="--", lw=1.0, color="black", alpha=0.7)
-    ax_res.plot(feh, resids, ".", ms=3.5)
-    s = np.nanstd(resids)
-    if np.isfinite(s) and s > 0:
-        ax_res.set_ylim(-3*s, 3*s)
-    ax_res.set_xlabel("[Fe/H]")
-    ax_res.set_ylabel("Model − data")
+    ax_res.plot(feh, res, ".", ms=3.5)
+    s = np.nanstd(res); 
+    ax_res.set_ylim(-3*s, 3*s) if s > 0 else None
+    ax_res.set_xlabel("[Fe/H]"); ax_res.set_ylabel("Model − data")
 
-    fig.savefig(save_path, bbox_inches="tight", dpi=300)
-    plt.close(fig)
+    fig.savefig(save_path, bbox_inches="tight", dpi=300); plt.close(fig)
+
+
+
+
+
 
 
 
