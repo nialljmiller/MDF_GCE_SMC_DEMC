@@ -1009,7 +1009,496 @@ class GalacticEvolutionGA:
             self.smc_demc_products = smc_products
             print("[smc-demc] Finished. Refinement artefacts written under:", self.output_path)
 
+
+
+    def run_smc_demc_stage(self,
+                           population,
+                           toolbox,
+                           ess_trigger=0.60,
+                           moves_per_stage=3,
+                           big_step_every=6,
+                           nsamples=200_000,
+                           burn_frac=0.20):
+        """
+        Tempered SMC with Differential-Evolution Metropolis moves, executed as the
+        refinement phase of the GA pipeline.
+
+        Produces CSV artefacts:
+          - {output_path}/chains.csv
+          - {output_path}/smc_demc_samples.csv (and legacy posterior_samples.csv)
+        Returns a dictionary with the written artefacts and in-memory draws.
+        """
+        import os
+        import numpy as np
+        import pandas as pd
+
+        rng = np.random.default_rng(42)
+
+        categorical_names = [
+            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx'
+        ]
+        param_names = [
+            'sigma_2', 'tmax_1', 'tmax_2', 'infall_timescale_1', 'infall_timescale_2',
+            'sfe', 'delta_sfe', 'imf_upper_limits', 'mgal_values', 'nb_array'
+        ]
+
+        start_idx = 5
+        end_idx = 15
+
+        X0 = np.vstack([
+            np.array(ind[start_idx:end_idx], dtype=float)
+            for ind in population
+        ])
+
+        categorical0 = np.vstack([
+            np.array(ind[:start_idx], dtype=int)
+            for ind in population
+        ])
+
+        bounds = [
+            Bound(*self.get_param_bounds(start_idx + j))
+            for j in range(X0.shape[1])
+        ]
+
+        base_template = toolbox.clone(population[0])
+
+        def loss_from_vector(theta, cat_vals=None):
+            ind = toolbox.clone(base_template)
+            if cat_vals is None:
+                cat_vals = categorical0[0]
+            for idx, val in enumerate(cat_vals):
+                ind[idx] = int(val)
+            ind[start_idx:end_idx] = list(theta)
+            if hasattr(ind.fitness, 'values'):
+                del ind.fitness.values
+            fit, _ = toolbox.evaluate(ind)
+            return float(fit[0])
+
+
+
+
+
+        import multiprocessing as mp
+
+        Ncores = alloc_cores()
+        self.demc_workers = min(Ncores, X0.shape[0])   # not more threads than walkers
+
+        if mp.current_process().name != "MainProcess":
+            raise RuntimeError("DEMC must run only in the coordinator process")
+
+        ensemble, chains_df = run_smc_demc(
+            X0,
+            loss_from_vector,
+            bounds,
+            metadata0=categorical0,
+            ess_trigger=ess_trigger,
+            moves_per_stage=moves_per_stage,
+            rng=rng,
+            gamma_schedule=(None, 1.0),
+            big_step_every=big_step_every,
+            max_workers=self.demc_workers,          # <- uses all available cores
+        )
+
+
+
+
+        self.refined_population = ensemble.copy()
+
+        os.makedirs(self.output_path, exist_ok=True)
+
+        meta_cols = [f"m{j}" for j in range(categorical0.shape[1])]
+        param_cols = [f"p{j}" for j in range(ensemble.shape[1])]
+        rename_map = {
+            **{old: new for old, new in zip(meta_cols, categorical_names)},
+            **{old: new for old, new in zip(param_cols, param_names)},
+        }
+        chains_df.rename(columns=rename_map, inplace=True)
+
+        max_stage = int(chains_df["stage"].max()) if len(chains_df) else 0
+        burn_cut = int(np.floor(max_stage * burn_frac))
+        kept = chains_df[chains_df["stage"] >= burn_cut]
+
+        if len(kept) > 0:
+            per_pid = max(1, nsamples // max(1, kept["pid"].nunique()))
+            sample_parts = []
+            for pid, group in kept.groupby("pid"):
+                take = min(per_pid, len(group))
+                sample_parts.append(
+                    group.sample(n=take, replace=(take > len(group)), random_state=0)
+                )
+            samples = pd.concat(sample_parts, axis=0, ignore_index=True)
+            samples = samples[param_names].reset_index(drop=True)
+        else:
+            samples = pd.DataFrame(columns=param_names)
+
+        chains_path = os.path.join(self.output_path, "chains.csv")
+        chains_df.to_csv(chains_path, index=False)
+        samples_path = os.path.join(self.output_path, "smc_demc_samples.csv")
+
+        samples.to_csv(samples_path, index=False)
+        legacy_samples_path = os.path.join(self.output_path, "posterior_samples.csv")
+        if legacy_samples_path != samples_path:
+            samples.to_csv(legacy_samples_path, index=False)
+
+        corner_path = None
+        if not samples.empty:
+            corner_labels = [
+                "σ₂",
+                "t₁",
+                "t₂",
+                "τ₁",
+                "τ₂",
+                "SFE",
+                "ΔSFE",
+                "IMF₍max₎",
+                "Mgal",
+                "N₍B₎",
+            ]
+            try:
+                fig = corner.corner(
+                    samples.to_numpy(),
+                    labels=corner_labels,
+                    show_titles=True,
+                    title_fmt=".3f",
+                    quantiles=[0.16, 0.50, 0.84],
+                    color="black",
+                    plot_datapoints=False,
+                    fill_contours=True,
+                    hist_kwargs={"histtype": "stepfilled", "alpha": 0.35, "edgecolor": "black"},
+                    contour_kwargs={"linewidths": 1.0},
+                    contourf_kwargs={"cmap": "Greys"},   # grayscale fills, darker in the center
+                    label_kwargs={"fontsize": 12},
+                    title_kwargs={"fontsize": 11},
+                )
+            except Exception as exc:
+                print(f"[smc-demc] corner plot failed: {exc}")
+            else:
+                corner_path = os.path.join(self.output_path, "smc_demc_posterior_corner.png")
+                fig.savefig(corner_path, dpi=300, bbox_inches="tight")
+                plt.close(fig)
+                print(f"[smc-demc] wrote {corner_path}")
+
+        print(f"[smc-demc] wrote {chains_path}")
+        print(f"[smc-demc] wrote {samples_path}")
+        if legacy_samples_path != samples_path:
+            print(f"[smc-demc] wrote {legacy_samples_path}")
+
+
+
+        return {
+            "ensemble": ensemble,
+            "chains": chains_df,
+            "chains_path": chains_path,
+            "samples": samples,
+            "samples_path": samples_path,
+            "legacy_samples_path": legacy_samples_path,
+            "corner_path": corner_path,
+        }
+
+
+    def export_ga_samples(self):
+        """Persist the GA evaluation history as a sampling-friendly CSV."""
+        if not self.sample_records:
+            return None
+
+        df = pd.DataFrame(self.sample_records)
+        if 'loss' not in df.columns and 'fitness' in df.columns:
+            df['loss'] = df['fitness']
+
+        base_cols = [col for col in ('generation', 'evaluation') if col in df.columns]
+        other_cols = [c for c in df.columns if c not in base_cols]
+        df = df[base_cols + other_cols]
+
+        os.makedirs(self.output_path, exist_ok=True)
+        path = os.path.join(self.output_path, 'ga_population_samples.csv')
+        df.to_csv(path, index=False)
+        self.ga_samples_path = path
+        print(f"[ga-sampler] wrote {path} ({len(df)} rows)")
+        return path
+
+
+
+
+
+
+
+
+
+    def apply_demc_hybrid_moves(self, population, toolbox):
+        """Apply Differential Evolution MCMC moves to a subset of the population."""
+
+        move_count = int(np.ceil(self.demc_fraction * len(population)))
+        move_count = max(3, min(len(population), move_count))
+        if move_count <= 0:
+            return
+
+        indices = self.demc_rng.choice(len(population), size=move_count, replace=False)
+
+        start_idx = 5
+        end_idx = 15
+
+        X = np.vstack([
+            np.array(population[i][start_idx:end_idx], dtype=float)
+            for i in indices
+        ])
+
+        metadata = np.vstack([
+            np.array(population[i][:start_idx], dtype=int)
+            for i in indices
+        ])
+
+        bounds = [
+            Bound(*self.get_param_bounds(start_idx + j))
+            for j in range(X.shape[1])
+        ]
+
+        base_template = toolbox.clone(population[0])
+        eval_cache = {}
+
+        print(f"[DEMC-hybrid] gen={getattr(self,'gen',-1)}: proposing for {len(X)} walkers "
+              f"(threads={self.demc_workers})", flush=True)
+
+
+        def cache_key(cat_vals, theta):
+            cat_tuple = tuple(int(v) for v in np.asarray(cat_vals).ravel())
+            theta_bytes = np.asarray(theta, dtype=np.float64).tobytes()
+            return cat_tuple, theta_bytes
+
+        def loss_from_vector(theta, cat_vals):
+            key = cache_key(cat_vals, theta)
+            if key not in eval_cache:
+                ind = toolbox.clone(base_template)
+                for idx, val in enumerate(cat_vals):
+                    ind[idx] = int(val)
+                ind[start_idx:end_idx] = list(theta)
+                if hasattr(ind.fitness, 'values'):
+                    del ind.fitness.values
+                eval_cache[key] = toolbox.evaluate(ind)
+            fit, _ = eval_cache[key]
+            return float(fit[0])
+
+        def loglike(theta, meta=None):
+            return -loss_from_vector(theta, meta)
+
+        X_new, accepted = de_mh_move(
+            X,
+            loglike,
+            bounds,
+            metadata=metadata,
+            steps=self.demc_moves_per_gen,
+            gamma=self.demc_gamma,
+            rng=self.demc_rng,
+            max_workers=self.demc_workers,
+        )
+
+        accepted_indices = np.where(accepted)[0]
+        if accepted_indices.size == 0:
+            return
+
+        print(f"[DEMC-hybrid] accepted {int(accepted.sum())}/{len(accepted)}", flush=True)
+
+
+        for local_idx in accepted_indices:
+            pop_idx = indices[local_idx]
+            theta = X_new[local_idx]
+            cat_vals = metadata[local_idx]
+            key = cache_key(cat_vals, theta)
+            fit, result = eval_cache.get(key, (None, None))
+            if fit is None:
+                ind_tmp = toolbox.clone(base_template)
+                for idx, val in enumerate(cat_vals):
+                    ind_tmp[idx] = int(val)
+                ind_tmp[start_idx:end_idx] = list(theta)
+                if hasattr(ind_tmp.fitness, 'values'):
+                    del ind_tmp.fitness.values
+                fit, result = toolbox.evaluate(ind_tmp)
+
+            individual = population[pop_idx]
+            for idx, val in enumerate(cat_vals):
+                individual[idx] = int(val)
+            individual[start_idx:end_idx] = list(theta)
+            individual.fitness.values = fit
+
+            self._record_evaluation_result(result)
+            self.walker_history.setdefault(pop_idx, []).append(list(individual))
+
+        print(f"[demc-hybrid] updated {accepted_indices.size} walkers via DE-MC proposals")
+
+
+
+
+
+
+
+
+
+
+    def _run_genetic_algorithm(
+        self,
+        population,
+        toolbox,
+        num_generations,
+        requantize,
+        start_gen=0,
+        checkpoint_manager=None,
+        output_interval=None,
+    ):
+        """
+        GA main loop with small elitism:
+          - evaluate invalid
+          - pick k elites (protected)
+          - select/mate/mutate the remaining (len(pop)-k)
+          - optional quantize + de-dup
+          - evaluate invalid
+          - replace population = elites ⊕ children
+          - (optional) update operator rates, checkpoint, partial results
+        """
+        if not hasattr(self, 'walker_history') or start_gen == 0:
+            self.walker_history = {i: [] for i in range(len(population))}
+
+        # small, fixed elitism unless user set self.elitism_k
+        base_k = max(1, len(population) // 16)  # ~6%
+        elitism_k = max(1, int(getattr(self, 'elitism_k', base_k)))
+
+
+
+        for gen in range(start_gen, num_generations):
+            print(f"-- =================== --", flush=True)
+            print(f"-- Generation {gen}/{num_generations} --", flush=True)
+            self.gen = gen
+
+            # ---------- Step 1: evaluate invalid in current population ----------
+            invalid_ind = [ind for ind in population if not ind.fitness.valid]
+            if invalid_ind:
+                if self.PP:
+                    fitnesses_and_results = toolbox.map(toolbox.evaluate, invalid_ind)
+                else:
+                    fitnesses_and_results = [toolbox.evaluate(ind) for ind in invalid_ind]
+
+                for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
+                    ind.fitness.values = fit
+                    self._record_evaluation_result(result)
+
+            gc.collect()
+
+            # ---------- Step 2: pick elites (PROTECTED) ----------
+            elites = tools.selBest(population, elitism_k)
+            elites = [toolbox.clone(e) for e in elites]
+
+            # ---------- Step 3: select parents for breeding (rest of pop) ----------
+            # full selection for pressure; then take the needed count for children
+            mating_pool = toolbox.select(population)
+            mating_pool = list(map(toolbox.clone, mating_pool))
+            # keep only the number we need to refill to full size
+            needed_children = len(population) - elitism_k
+            breed_pool = mating_pool[:max(needed_children, 0)]
+
+            # Targeted improvement for very poor parents - no poors allowed
+            if len(population) > 0:
+                best_walker = tools.selBest(population, 1)[0]
+                best_clone = toolbox.clone(best_walker)
+                for p in breed_pool:
+                    if p.fitness.valid and p.fitness.values[0] > 100.0:
+                        # two nudges + biased mate with best
+                        toolbox.mutate(p); toolbox.mutate(p)
+                        child, _ = toolbox.mate(p, best_clone)
+                        p[:] = child
+                        if hasattr(p.fitness, 'values'):
+                            del p.fitness.values
+
+            # ---------- Step 4: crossover then mutation (children only; elites protected) ----------
+            offspring = list(map(toolbox.clone, breed_pool))
+
+            # crossover (pairwise)
+            for c1, c2 in zip(offspring[::2], offspring[1::2]):
+                if random.random() < self.cxpb:
+                    toolbox.mate(c1, c2)
+                    if hasattr(c1.fitness, 'values'): del c1.fitness.values
+                    if hasattr(c2.fitness, 'values'): del c2.fitness.values
+
+            # mutation
+            for m in offspring:
+                if random.random() < self.mutpb:
+                    toolbox.mutate(m)
+                    if hasattr(m.fitness, 'values'): del m.fitness.values
+
+            # optional quantization (children only)
+            if self.quant_individuals:
+                offspring = [requantize(ind) for ind in offspring]
+
+            # de-duplicate CHILDREN ONLY; elites remain unchanged
+            offspring = self.prevent_duplicates(offspring, toolbox)
+
+            # ensure we have exactly the needed number of children
+            if len(offspring) > needed_children:
+                offspring = offspring[:needed_children]
+            elif len(offspring) < needed_children:
+                # pad with best clones if de-dup trimmed too far
+                fillers = tools.selBest(population, needed_children - len(offspring))
+                offspring += [toolbox.clone(f) for f in fillers]
+
+            # ---------- Step 5: evaluate invalid children ----------
+            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+            if invalid_ind:
+                if self.PP:
+                    fitnesses_and_results = toolbox.map(toolbox.evaluate, invalid_ind)
+                else:
+                    fitnesses_and_results = [toolbox.evaluate(ind) for ind in invalid_ind]
+
+                for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
+                    ind.fitness.values = fit
+                    self._record_evaluation_result(result)
+
+            # ---------- Step 6: record history before replacement ----------
+            for idx, ind in enumerate(population):
+                self.walker_history[idx].append(list(ind))
+
+            # ---------- Step 7: replace population = elites ⊕ offspring ----------
+            new_population = elites + offspring
+            population[:] = new_population  # size preserved
+
+            # ---------- Step 7b: optional DE-MCMC refinement on the living population ----------
+            self.apply_demc_hybrid_moves(population, toolbox)
+
+            # ---------- Step 8: (optional) adaptive operator rates ----------
+            self.update_operator_rates(population, gen, num_generations)
+
+            # ---------- Step 9: checkpoint + periodic results ----------
+            if checkpoint_manager:
+                checkpoint_manager.save(gen, population, self)
+            else:
+                print('checkpoint_manager missing')
+                exit()
+
+            if output_interval and ((gen) % output_interval == 0 or gen == num_generations - 1):
+                self.save_partial_results(gen)
+
+            gc.collect()
+
+
+
+
+
     def evaluate(self, individual):
+
+
+
+
+
+
+
+
+        def _repair_preflight(ind):
+
+
+            if ind[7] < ind[6] + 0.5:   # Gyr
+                ind[7] = ind[7] + 0.5
+
+            return ind
+
+        individual = _repair_preflight(list(individual))
+
+
         # Extract parameters from the individual
         # Categorical parameters (indices)
         comp_idx  = int(np.clip(int(individual[0]), 0, len(self.comp_array)   - 1))
@@ -1189,10 +1678,8 @@ class GalacticEvolutionGA:
 
         # Run GCE model and compute MDF
         GCE_model = omega_plus.omega_plus(**kwargs)
-        MDF_x_data, MDF_y_data = GCE_model.inner.plot_mdf(axis_mdf='[Fe/H]', sigma_gauss=0.1, norm=True, return_x_y=True)
-        MDF_x_data = np.array(MDF_x_data)
-        MDF_y_data = np.array(MDF_y_data)
 
+        MDF_x_data, MDF_y_data = GCE_model.inner.plot_mdf(axis_mdf='[Fe/H]', sigma_gauss=0.1, norm=True, return_x_y=True)
 
         elements = ['[Si/Fe]','[Ca/Fe]','[Mg/Fe]','[Ti/Fe]']
         alpha_arrs = []
@@ -1200,37 +1687,29 @@ class GalacticEvolutionGA:
             alpha_x_data, alpha_y_data = GCE_model.inner.plot_spectro(xaxis='[Fe/H]', yaxis=el, return_x_y=True)
             alpha_arrs.append([np.array(alpha_x_data), np.array(alpha_y_data)])
 
-
         age_x_data, age_y_data=GCE_model.inner.plot_spectro(xaxis='age', yaxis='[Fe/H]', return_x_y=True)
         age_x_data = np.array(age_x_data)
         age_y_data = np.array(age_y_data)
 
-        # Evaluate the spline at the same [Fe/H] grid as your data
-        cs_MDF = CubicSpline(MDF_x_data, MDF_y_data)
-        #fmin, fmax = MDF_x_data.min(), MDF_x_data.max()
-        #feh_clamped = np.clip(self.feh, fmin, fmax)
-        #theory_count_array = cs_MDF(feh_clamped)
 
+        # Arrays + sorted (PCHIP requires strictly increasing x)
+        x = np.asarray(MDF_x_data, dtype=float)
+        y = np.asarray(MDF_y_data, dtype=float)
+        order = np.argsort(x)
+        x = x[order]
+        y = np.clip(y[order], 0.0, None)   # no negatives
 
+        # Monotone cubic; NO clamping of inputs
+        pchip = PchipInterpolator(x, y, extrapolate=False)
 
-        # Sort (safety), clamp, interpolate without overshoot
-        order = np.argsort(MDF_x_data)
-        x = np.asarray(MDF_x_data)[order]
-        y = np.clip(np.asarray(MDF_y_data)[order], 0, None)    # no negatives
+        # Evaluate on observational grid, zero outside model domain
+        model = pchip(self.feh)
+        cs_MDF = model
+        model = np.where(np.isfinite(model), model, 0.0)
 
-        interp = PchipInterpolator(x, y, extrapolate=False)
-
-        fmin, fmax = x[0], x[-1]
-        feh_clamped = np.clip(self.feh, fmin, fmax)
-
-        theory = interp(feh_clamped)
-        theory = np.clip(theory, 0, None)
-
-        # match the observational normalization convention (your data are count/max)
-        m = theory.max()
-        theory_count_array = theory / m #if m > 0 else theory
-
-
+        # Match your metric/plotting convention: peak-normalize
+        m = model.max()
+        theory_count_array = model / m if m > 0 else model
 
 
         # Compare with the observed distribution
@@ -1293,6 +1772,12 @@ class GalacticEvolutionGA:
 
         return (primary_loss_value,), result
 
+
+
+
+
+
+
     def _record_evaluation_result(self, result):
         """Store side-effects from a successful model evaluation."""
         if result is None:
@@ -1320,460 +1805,6 @@ class GalacticEvolutionGA:
         self.MDFs.append(result.get('cs_MDF'))
         self.model_numbers.append(result.get('model_number'))
         self.model_count += 1
-
-    def run_smc_demc_stage(self,
-                           population,
-                           toolbox,
-                           ess_trigger=0.60,
-                           moves_per_stage=3,
-                           big_step_every=6,
-                           nsamples=200_000,
-                           burn_frac=0.20):
-        """
-        Tempered SMC with Differential-Evolution Metropolis moves, executed as the
-        refinement phase of the GA pipeline.
-
-        Produces CSV artefacts:
-          - {output_path}/chains.csv
-          - {output_path}/smc_demc_samples.csv (and legacy posterior_samples.csv)
-        Returns a dictionary with the written artefacts and in-memory draws.
-        """
-        import os
-        import numpy as np
-        import pandas as pd
-
-        rng = np.random.default_rng(42)
-
-        categorical_names = [
-            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx'
-        ]
-        param_names = [
-            'sigma_2', 'tmax_1', 'tmax_2', 'infall_timescale_1', 'infall_timescale_2',
-            'sfe', 'delta_sfe', 'imf_upper_limits', 'mgal_values', 'nb_array'
-        ]
-
-        start_idx = 5
-        end_idx = 15
-
-        X0 = np.vstack([
-            np.array(ind[start_idx:end_idx], dtype=float)
-            for ind in population
-        ])
-
-        categorical0 = np.vstack([
-            np.array(ind[:start_idx], dtype=int)
-            for ind in population
-        ])
-
-        bounds = [
-            Bound(*self.get_param_bounds(start_idx + j))
-            for j in range(X0.shape[1])
-        ]
-
-        base_template = toolbox.clone(population[0])
-
-        def loss_from_vector(theta, cat_vals=None):
-            ind = toolbox.clone(base_template)
-            if cat_vals is None:
-                cat_vals = categorical0[0]
-            for idx, val in enumerate(cat_vals):
-                ind[idx] = int(val)
-            ind[start_idx:end_idx] = list(theta)
-            if hasattr(ind.fitness, 'values'):
-                del ind.fitness.values
-            fit, _ = toolbox.evaluate(ind)
-            return float(fit[0])
-
-
-
-
-
-        import multiprocessing as mp
-
-        Ncores = alloc_cores()
-        self.demc_workers = min(Ncores, X0.shape[0])   # not more threads than walkers
-
-        if mp.current_process().name != "MainProcess":
-            raise RuntimeError("DEMC must run only in the coordinator process")
-
-        ensemble, chains_df = run_smc_demc(
-            X0,
-            loss_from_vector,
-            bounds,
-            metadata0=categorical0,
-            ess_trigger=ess_trigger,
-            moves_per_stage=moves_per_stage,
-            rng=rng,
-            gamma_schedule=(None, 1.0),
-            big_step_every=big_step_every,
-            max_workers=self.demc_workers,          # <- uses all available cores
-        )
-
-
-        self.refined_population = ensemble.copy()
-
-        os.makedirs(self.output_path, exist_ok=True)
-
-        meta_cols = [f"m{j}" for j in range(categorical0.shape[1])]
-        param_cols = [f"p{j}" for j in range(ensemble.shape[1])]
-        rename_map = {
-            **{old: new for old, new in zip(meta_cols, categorical_names)},
-            **{old: new for old, new in zip(param_cols, param_names)},
-        }
-        chains_df.rename(columns=rename_map, inplace=True)
-
-        max_stage = int(chains_df["stage"].max()) if len(chains_df) else 0
-        burn_cut = int(np.floor(max_stage * burn_frac))
-        kept = chains_df[chains_df["stage"] >= burn_cut]
-
-        if len(kept) > 0:
-            per_pid = max(1, nsamples // max(1, kept["pid"].nunique()))
-            sample_parts = []
-            for pid, group in kept.groupby("pid"):
-                take = min(per_pid, len(group))
-                sample_parts.append(
-                    group.sample(n=take, replace=(take > len(group)), random_state=0)
-                )
-            samples = pd.concat(sample_parts, axis=0, ignore_index=True)
-            samples = samples[param_names].reset_index(drop=True)
-        else:
-            samples = pd.DataFrame(columns=param_names)
-
-        chains_path = os.path.join(self.output_path, "chains.csv")
-        chains_df.to_csv(chains_path, index=False)
-        samples_path = os.path.join(self.output_path, "smc_demc_samples.csv")
-
-        samples.to_csv(samples_path, index=False)
-        legacy_samples_path = os.path.join(self.output_path, "posterior_samples.csv")
-        if legacy_samples_path != samples_path:
-            samples.to_csv(legacy_samples_path, index=False)
-
-        corner_path = None
-        if not samples.empty:
-            corner_labels = [
-                "σ₂",
-                "t₁",
-                "t₂",
-                "τ₁",
-                "τ₂",
-                "SFE",
-                "ΔSFE",
-                "IMF₍max₎",
-                "Mgal",
-                "N₍B₎",
-            ]
-            try:
-                fig = corner.corner(
-                    samples.to_numpy(),
-                    labels=corner_labels,
-                    show_titles=True,
-                    title_fmt=".3f",
-                    quantiles=[0.16, 0.50, 0.84],
-                    color="black",
-                    plot_datapoints=False,
-                    fill_contours=True,
-                    hist_kwargs={"histtype": "stepfilled", "alpha": 0.35, "edgecolor": "black"},
-                    contour_kwargs={"linewidths": 1.0},
-                    contourf_kwargs={"cmap": "Greys"},   # grayscale fills, darker in the center
-                    label_kwargs={"fontsize": 12},
-                    title_kwargs={"fontsize": 11},
-                )
-            except Exception as exc:
-                print(f"[smc-demc] corner plot failed: {exc}")
-            else:
-                corner_path = os.path.join(self.output_path, "smc_demc_posterior_corner.png")
-                fig.savefig(corner_path, dpi=300, bbox_inches="tight")
-                plt.close(fig)
-                print(f"[smc-demc] wrote {corner_path}")
-
-        print(f"[smc-demc] wrote {chains_path}")
-        print(f"[smc-demc] wrote {samples_path}")
-        if legacy_samples_path != samples_path:
-            print(f"[smc-demc] wrote {legacy_samples_path}")
-
-        return {
-            "ensemble": ensemble,
-            "chains": chains_df,
-            "chains_path": chains_path,
-            "samples": samples,
-            "samples_path": samples_path,
-            "legacy_samples_path": legacy_samples_path,
-            "corner_path": corner_path,
-        }
-
-
-    def export_ga_samples(self):
-        """Persist the GA evaluation history as a sampling-friendly CSV."""
-        if not self.sample_records:
-            return None
-
-        df = pd.DataFrame(self.sample_records)
-        if 'loss' not in df.columns and 'fitness' in df.columns:
-            df['loss'] = df['fitness']
-
-        base_cols = [col for col in ('generation', 'evaluation') if col in df.columns]
-        other_cols = [c for c in df.columns if c not in base_cols]
-        df = df[base_cols + other_cols]
-
-        os.makedirs(self.output_path, exist_ok=True)
-        path = os.path.join(self.output_path, 'ga_population_samples.csv')
-        df.to_csv(path, index=False)
-        self.ga_samples_path = path
-        print(f"[ga-sampler] wrote {path} ({len(df)} rows)")
-        return path
-
-
-    def apply_demc_hybrid_moves(self, population, toolbox):
-        """Apply Differential Evolution MCMC moves to a subset of the population."""
-        if not self.demc_hybrid or len(population) < 3:
-            return
-
-
-
-
-        move_count = int(np.ceil(self.demc_fraction * len(population)))
-        move_count = max(3, min(len(population), move_count))
-        if move_count <= 0:
-            return
-
-        indices = self.demc_rng.choice(len(population), size=move_count, replace=False)
-
-        start_idx = 5
-        end_idx = 15
-
-        X = np.vstack([
-            np.array(population[i][start_idx:end_idx], dtype=float)
-            for i in indices
-        ])
-
-        metadata = np.vstack([
-            np.array(population[i][:start_idx], dtype=int)
-            for i in indices
-        ])
-
-        bounds = [
-            Bound(*self.get_param_bounds(start_idx + j))
-            for j in range(X.shape[1])
-        ]
-
-        base_template = toolbox.clone(population[0])
-        eval_cache = {}
-
-        print(f"[DEMC-hybrid] gen={getattr(self,'gen',-1)}: proposing for {len(X)} walkers "
-              f"(threads={self.demc_workers})", flush=True)
-
-
-        def cache_key(cat_vals, theta):
-            cat_tuple = tuple(int(v) for v in np.asarray(cat_vals).ravel())
-            theta_bytes = np.asarray(theta, dtype=np.float64).tobytes()
-            return cat_tuple, theta_bytes
-
-        def loss_from_vector(theta, cat_vals):
-            key = cache_key(cat_vals, theta)
-            if key not in eval_cache:
-                ind = toolbox.clone(base_template)
-                for idx, val in enumerate(cat_vals):
-                    ind[idx] = int(val)
-                ind[start_idx:end_idx] = list(theta)
-                if hasattr(ind.fitness, 'values'):
-                    del ind.fitness.values
-                eval_cache[key] = toolbox.evaluate(ind)
-            fit, _ = eval_cache[key]
-            return float(fit[0])
-
-        def loglike(theta, meta=None):
-            return -loss_from_vector(theta, meta)
-
-        X_new, accepted = de_mh_move(
-            X,
-            loglike,
-            bounds,
-            metadata=metadata,
-            steps=self.demc_moves_per_gen,
-            gamma=self.demc_gamma,
-            rng=self.demc_rng,
-            max_workers=self.demc_workers,
-        )
-
-        accepted_indices = np.where(accepted)[0]
-        if accepted_indices.size == 0:
-            return
-
-        print(f"[DEMC-hybrid] accepted {int(accepted.sum())}/{len(accepted)}", flush=True)
-
-
-        for local_idx in accepted_indices:
-            pop_idx = indices[local_idx]
-            theta = X_new[local_idx]
-            cat_vals = metadata[local_idx]
-            key = cache_key(cat_vals, theta)
-            fit, result = eval_cache.get(key, (None, None))
-            if fit is None:
-                ind_tmp = toolbox.clone(base_template)
-                for idx, val in enumerate(cat_vals):
-                    ind_tmp[idx] = int(val)
-                ind_tmp[start_idx:end_idx] = list(theta)
-                if hasattr(ind_tmp.fitness, 'values'):
-                    del ind_tmp.fitness.values
-                fit, result = toolbox.evaluate(ind_tmp)
-
-            individual = population[pop_idx]
-            for idx, val in enumerate(cat_vals):
-                individual[idx] = int(val)
-            individual[start_idx:end_idx] = list(theta)
-            individual.fitness.values = fit
-
-            self._record_evaluation_result(result)
-            self.walker_history.setdefault(pop_idx, []).append(list(individual))
-
-        print(f"[demc-hybrid] updated {accepted_indices.size} walkers via DE-MC proposals")
-
-
-    def _run_genetic_algorithm(
-        self,
-        population,
-        toolbox,
-        num_generations,
-        requantize,
-        start_gen=0,
-        checkpoint_manager=None,
-        output_interval=None,
-    ):
-        """
-        GA main loop with small elitism:
-          - evaluate invalid
-          - pick k elites (protected)
-          - select/mate/mutate the remaining (len(pop)-k)
-          - optional quantize + de-dup
-          - evaluate invalid
-          - replace population = elites ⊕ children
-          - (optional) update operator rates, checkpoint, partial results
-        """
-        if not hasattr(self, 'walker_history') or start_gen == 0:
-            self.walker_history = {i: [] for i in range(len(population))}
-
-        # small, fixed elitism unless user set self.elitism_k
-        base_k = max(1, len(population) // 16)  # ~6%
-        elitism_k = max(1, int(getattr(self, 'elitism_k', base_k)))
-
-
-
-        for gen in range(start_gen, num_generations):
-            print(f"-- =================== --", flush=True)
-            print(f"-- Generation {gen}/{num_generations} --", flush=True)
-            self.gen = gen
-
-            # ---------- Step 1: evaluate invalid in current population ----------
-            invalid_ind = [ind for ind in population if not ind.fitness.valid]
-            if invalid_ind:
-                if self.PP:
-                    fitnesses_and_results = toolbox.map(toolbox.evaluate, invalid_ind)
-                else:
-                    fitnesses_and_results = [toolbox.evaluate(ind) for ind in invalid_ind]
-
-                for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
-                    ind.fitness.values = fit
-                    self._record_evaluation_result(result)
-
-            gc.collect()
-
-            # ---------- Step 2: pick elites (PROTECTED) ----------
-            elites = tools.selBest(population, elitism_k)
-            elites = [toolbox.clone(e) for e in elites]
-            for e in elites:
-                # force re-eval flag off; we keep the elite genomes intact and their fitness as-is
-                # (no del e.fitness.values)
-                pass
-
-            # ---------- Step 3: select parents for breeding (rest of pop) ----------
-            # full selection for pressure; then take the needed count for children
-            mating_pool = toolbox.select(population)
-            mating_pool = list(map(toolbox.clone, mating_pool))
-            # keep only the number we need to refill to full size
-            needed_children = len(population) - elitism_k
-            breed_pool = mating_pool[:max(needed_children, 0)]
-
-            # Targeted improvement for very poor parents - no poors allowed
-            if len(population) > 0:
-                best_walker = tools.selBest(population, 1)[0]
-                best_clone = toolbox.clone(best_walker)
-                for p in breed_pool:
-                    if p.fitness.valid and p.fitness.values[0] > 100.0:
-                        # two nudges + biased mate with best
-                        toolbox.mutate(p); toolbox.mutate(p)
-                        child, _ = toolbox.mate(p, best_clone)
-                        p[:] = child
-                        if hasattr(p.fitness, 'values'):
-                            del p.fitness.values
-
-            # ---------- Step 4: crossover then mutation (children only; elites protected) ----------
-            offspring = list(map(toolbox.clone, breed_pool))
-
-            # crossover (pairwise)
-            for c1, c2 in zip(offspring[::2], offspring[1::2]):
-                if random.random() < self.cxpb:
-                    toolbox.mate(c1, c2)
-                    if hasattr(c1.fitness, 'values'): del c1.fitness.values
-                    if hasattr(c2.fitness, 'values'): del c2.fitness.values
-
-            # mutation
-            for m in offspring:
-                if random.random() < self.mutpb:
-                    toolbox.mutate(m)
-                    if hasattr(m.fitness, 'values'): del m.fitness.values
-
-            # optional quantization (children only)
-            if self.quant_individuals:
-                offspring = [requantize(ind) for ind in offspring]
-
-            # de-duplicate CHILDREN ONLY; elites remain unchanged
-            offspring = self.prevent_duplicates(offspring, toolbox)
-
-            # ensure we have exactly the needed number of children
-            if len(offspring) > needed_children:
-                offspring = offspring[:needed_children]
-            elif len(offspring) < needed_children:
-                # pad with best clones if de-dup trimmed too far
-                fillers = tools.selBest(population, needed_children - len(offspring))
-                offspring += [toolbox.clone(f) for f in fillers]
-
-            # ---------- Step 5: evaluate invalid children ----------
-            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            if invalid_ind:
-                if self.PP:
-                    fitnesses_and_results = toolbox.map(toolbox.evaluate, invalid_ind)
-                else:
-                    fitnesses_and_results = [toolbox.evaluate(ind) for ind in invalid_ind]
-
-                for (ind, (fit, result)) in zip(invalid_ind, fitnesses_and_results):
-                    ind.fitness.values = fit
-                    self._record_evaluation_result(result)
-
-            # ---------- Step 6: record history before replacement ----------
-            for idx, ind in enumerate(population):
-                self.walker_history[idx].append(list(ind))
-
-            # ---------- Step 7: replace population = elites ⊕ offspring ----------
-            new_population = elites + offspring
-            population[:] = new_population  # size preserved
-
-            # ---------- Step 7b: optional DE-MCMC refinement on the living population ----------
-            self.apply_demc_hybrid_moves(population, toolbox)
-
-            # ---------- Step 8: (optional) adaptive operator rates ----------
-            self.update_operator_rates(population, gen, num_generations)
-
-            # ---------- Step 9: checkpoint + periodic results ----------
-            if checkpoint_manager:
-                checkpoint_manager.save(gen, population, self)
-            else:
-                print('checkpoint_manager missing')
-                exit()
-
-            if output_interval and ((gen) % output_interval == 0 or gen == num_generations - 1):
-                self.save_partial_results(gen)
-
-            gc.collect()
 
 
     def save_partial_results(self, generation):

@@ -221,11 +221,16 @@ infall_timescale_2_list: [0.1, 10.0]
 # - iniab_output_feh_m100.txt (-1.0 dex)
 # - iniab_output_feh_m150.txt (-1.5 dex)
 # - iniab_output_feh_m200.txt (-2.0 dex)
-# Justification: Bins from +0.5 to -2.0 [Fe/H] now included to test pristine (-2.0) vs. enriched (+0.5) infall; extended to -2.0 for metal-poor tail in bulge MDF.
-# Contentious: Primordial (<-2.0) rarely needed for bulge (mostly -1.5 to +0.5), but added for halo-like contributions; solar common for second infall.
-# References: Rojas-Arriagada et al. (2020, MNRAS, 499, 1037) for bulge MDF -1.5 to +0.5; Matteucci et al. (2024, A&A, 687, A11) including -2.0 for early gas; Chiappini et al. (2001) for -0.5 to solar in phases.
+# Justification: Bins from +0.5 to -2.0 [Fe/H] now included to test pristine (-2.0) vs. enriched (+0.5) 
+#infall; extended to -2.0 for metal-poor tail in bulge MDF.
+# Contentious: Primordial (<-2.0) rarely needed for bulge (mostly -1.5 to +0.5), 
+#but added for halo-like contributions; solar common for second infall.
+# References: Rojas-Arriagada et al. (2020, MNRAS, 499, 1037) for bulge MDF -1.5 to +0.5; 
+#Matteucci et al. (2024, A&A, 687, A11) including -2.0 for early gas; Chiappini et al. (2001) 
+#for -0.5 to solar in phases.
 ############################################################
-comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
+#comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
+comp_array: ['iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
 #comp_array: ['iniab_output_feh_p000.txt']
 ############################################################
 #

@@ -279,7 +279,7 @@ def compute_physics_ensemble(GalGA, top_df, weights, max_models=2000000000):
 
 
 
-def plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall_Physics_Posterior.png',
+def post_plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall_Physics_Posterior.png',
                              use_posterior=True, percentile=10, max_models=20):
     """
     Generate physics visualization with posterior uncertainty bands.
@@ -306,7 +306,7 @@ def plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall_Phys
 
 
     if percentile == -1:
-        percentile = choose_cutoff_lognorm_mixture(results_df, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6)
+        percentile = choose_cutoff_lognorm_mixture(results_df['fitness'].values, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6)
 
     
     save_path = GalGA.output_path + save_path

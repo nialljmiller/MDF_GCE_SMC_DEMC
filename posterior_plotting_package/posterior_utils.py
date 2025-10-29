@@ -630,7 +630,7 @@ def get_posterior_samples_and_weights(results_df, metric_val='fitness'):
 
 
 
-def choose_cutoff_lognorm_mixture(df_sorted, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6, force_k2=False):
+def choose_cutoff_lognorm_mixture(in_weights, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6, force_k2=False):
     """
     Simple, reviewer-proof cutoff:
       - Work in y = log(loss).
@@ -644,7 +644,7 @@ def choose_cutoff_lognorm_mixture(df_sorted, bins=100, kde_points=1024, em_max_i
     from scipy.special import logsumexp
 
     # ---------- data ----------
-    L = np.asarray(df_sorted['fitness'].values, float)
+    L = np.asarray(in_weights, float)
     L = L[np.isfinite(L)]
     if L.size == 0:
         raise RuntimeError("No finite losses/fitness values.")

@@ -218,7 +218,7 @@ if len(sys.argv) > 2:
 
 if plot_only:
     target = arg_path if arg_path is not None else "."
-    _plot_only(target, bins=60)
+    _plot_only(target, bins=69)
     print("done, i shall now die :)")
     sys.exit(0)
 

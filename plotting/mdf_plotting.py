@@ -19,8 +19,8 @@ from plotting.omni_plot import *              # omni info figure (if you use it)
 from plotting.core_plots import *
 from plotting.phys_plot import *
 
-from posterior_plotting_package.core_plots_posterior import plot_age_feh_detailed, plot_mdf_curves, plot_four_panel_alpha, plot_corner
-from posterior_plotting_package.phys_plot_posterior import plot_real_infall_physics
+from posterior_plotting_package.core_plots_posterior import post_plot_age_feh_detailed, post_plot_mdf_curves, post_plot_four_panel_alpha, post_plot_corner
+from posterior_plotting_package.phys_plot_posterior import post_plot_real_infall_physics
 
 from plotting.style import *
 use_paper_style()
@@ -142,8 +142,8 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
         print(f"Unable to load {results_file}: {exc}")
         df = pd.DataFrame()
 
-    df['fitness'] = df['fitness'].values/df['physics_penalty'].values
-    df['physics_penalty'] = df['physics_penalty'] + 1.0
+    #df['fitness'] = df['fitness'].values/df['physics_penalty'].values
+    #df['physics_penalty'] = df['physics_penalty'] + 1.0
     df['confidence'] = df['fitness'].values * df['physics_penalty'].values
 
 
@@ -153,6 +153,25 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     ####################
     ####################
 
+
+
+
+    # ----------------------------
+    # Core plots
+    # ----------------------------
+    print("Generating MDF fit plot...")
+    plot_mdf_curves(GalGA, feh, normalized_count, df)
+
+    print("Generating four-panel alpha comparison...")
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df)
+
+    print("Generating age-metallicity relation plots...")
+    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, n_bins=10)
+
+    #plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df)
+
+    #exit()
+    plt.close('all')
 
     # ----------------------------
     # Omni figures
@@ -166,41 +185,31 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
         GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
         feh, normalized_count, df
     )
+    plt.close('all')
 
     print("Omni info figure generated!")
 
 
 
     print("Generating posterior figures...")
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'fitness')
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
-    plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'fitness')
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
+    plt.close('all')
 
-    plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=100)
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=100)
+    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=-1)
+    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=-1)
+    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=-1)
+    plt.close('all')
 
-    plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=100)
-
-
-    # ----------------------------
-    # Core plots
-    # ----------------------------
-    print("Generating MDF fit plot...")
-    plot_mdf_curves(GalGA, feh, normalized_count, df if not df.empty else None)
-
-    print("Generating four-panel alpha comparison...")
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df if not df.empty else None)
-
-    print("Generating age-metallicity relation plots...")
-    plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df if not df.empty else None, n_bins=10)
-
-    plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df if not df.empty else None)
-
+    post_plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=-1)
     plt.close('all')
 
 
+
+
     generate_physics_plots(GalGA, results_file=results_file)
+    plt.close('all')
 
 
 
