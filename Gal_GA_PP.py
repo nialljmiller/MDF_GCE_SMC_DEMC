@@ -222,7 +222,7 @@ class GalacticEvolutionGA:
             'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
             'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
             'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
-            'cosine', 'log_cosh', 'fitness', 'age_meta_fitness', 'physics_penalty'
+            'cosine', 'log_cosh', 'EMD', 'fitness', 'age_meta_fitness', 'physics_penalty'
         ]
         self.sample_records = []
         self.ga_samples_path = None
@@ -284,8 +284,8 @@ class GalacticEvolutionGA:
             'cosine': compute_cosine_similarity,
             'ks': compute_ks_distance,
             'ensemble': compute_ensemble_metric,
-            'log_cosh': compute_log_cosh
-        }
+            'log_cosh': compute_log_cosh,
+            'EMD': compute_EMD}
 
         # Select the loss function based on user input
         if loss_metric not in self.loss_functions:
@@ -1713,7 +1713,7 @@ class GalacticEvolutionGA:
 
 
         # Compare with the observed distribution
-        ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh = calculate_all_metrics(self, theory_count_array)
+        ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh, EMD = calculate_all_metrics(self, theory_count_array)
 
         penalty_factor = 1.0
         obs_age_loss_value = 1.0
@@ -1754,7 +1754,7 @@ class GalacticEvolutionGA:
             sigma_2, t_1, t_2, infall_1, infall_2,
             sfe_val, delta_sfe_val, imf_upper, mgal, nb,
             ks, ensemble, wrmse, mae, mape, huber,
-            cos_similarity, log_cosh, primary_loss_value, obs_age_loss_value, penalty_factor
+            cos_similarity, log_cosh, EMD, primary_loss_value, obs_age_loss_value, penalty_factor
         ]
 
         result = {

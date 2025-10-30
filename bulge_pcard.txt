@@ -50,17 +50,17 @@ seed: -1
 # NB - this is not the number of evaluations as evaluations are only made if a crossover or/and mutation has been done to the individual
 # Justification: 128 allows diversity while feasible computationally; scales with param dimensions (~15 here).
 # References: Goldberg (1989, Genetic Algorithms book) for popsize ~100-200 in complex spaces.
-popsize:4
+popsize:-0.5
 
-demc_fraction:0.6
+demc_fraction:0.69
 # How many generations (/epochs) are performed. 
 # Justification: 128 ensures ~16k evaluations; sufficient for convergence in 10-20 dim spaces.
 # References: Whitley (1994, Foundations of Genetic Algorithms) for generation scaling.
-generations: 128
+generations: 256
 
 # Interval (in generations) at which full results and plots are generated
 # Set to a positive integer to enable periodic output
-output_interval: 1
+output_interval: 16
 
 # Probability an individual will make babies. 
 # Justification: 0.5 promotes mixing without excessive randomness.
@@ -103,7 +103,7 @@ shrink_range: 'False'
 
 # Controls the number of steps where MutPb=0.80, CxPb=0.20, Voronoi=0.40
 # This is the initial exploration stage, the number of steps where the focus is on expansive exploration
-exploration_steps: 0.0
+exploration_steps: 0.15
 
 
 
@@ -230,7 +230,7 @@ infall_timescale_2_list: [0.1, 10.0]
 #for -0.5 to solar in phases.
 ############################################################
 #comp_array: ['iniab_output_feh_p050.txt','iniab_output_feh_p000.txt','iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
-comp_array: ['iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
+comp_array: ['iniab_output_feh_m050.txt','iniab_output_feh_m100.txt','iniab_output_feh_m150.txt','iniab_output_feh_m200.txt']
 #comp_array: ['iniab_output_feh_p000.txt']
 ############################################################
 #

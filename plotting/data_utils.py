@@ -103,12 +103,6 @@ def load_results_dataframe(
     df = df.copy()
     df[metric] = pd.to_numeric(df[metric], errors="coerce")
 
-    if metric != "fitness" and "fitness" not in df.columns:
-        df["fitness"] = df[metric]
-
-    if "confidence" not in df.columns and "fitness" in df.columns:
-        df["confidence"] = df["fitness"]
-
     df = df.replace({np.inf: np.nan, -np.inf: np.nan})
     mask = np.isfinite(df[metric])
     df = df.loc[mask].sort_values(metric, ascending=True).reset_index(drop=True)

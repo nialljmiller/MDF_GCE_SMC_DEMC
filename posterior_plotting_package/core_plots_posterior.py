@@ -323,6 +323,96 @@ def post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_pat
     return fig
 
 
+def post_plot_mdf_curves2(GalGA, feh, normalized_count, results_df=None, save_path=None, use_posterior=True, percentile=10):
+    if percentile == -1:
+        percentile = choose_cutoff_lognorm_mixture(results_df['fitness'].values, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6)
+
+    if save_path is None:
+        save_path = os.path.join(GalGA.output_path, "MDF_posterior2.png")
+
+    # sort the DATA once; everything else keys to this
+    feh = np.asarray(feh, float)
+    normalized_count = np.asarray(normalized_count, float)
+    m = np.isfinite(feh) & np.isfinite(normalized_count)
+    idx = np.argsort(feh[m])
+    x_data = feh[m][idx]
+    y_data = normalized_count[m][idx]
+
+    # === real posterior samples ===
+    # use systematic resampling so the ensemble comes from actual draws
+    draw_df, draw_w = posterior_resample(
+        results_df,
+        weight_col='posterior_w',
+        fitness_col='fitness',
+        percentile=percentile,
+        resampling='systematic'
+    )
+
+    # === force same x-length and span as the data ===
+    # n_bins equals number of data points; range matches data support
+    n_bins = x_data.size*2
+    x_lo, x_hi = float(x_data.min()), float(x_data.max())
+
+    mdf_ensemble = compute_mdf_ensemble(
+        GalGA,
+        draw_df,
+        draw_w,
+        feh_range=(x_lo, x_hi),
+        n_bins=n_bins
+    )
+
+    x_common  = mdf_ensemble['x']            # length == len(x_data)
+    y_med     = mdf_ensemble['median']
+    y_lo      = mdf_ensemble['lower']
+    y_hi      = mdf_ensemble['upper']
+
+    # put the DATA onto the same x grid (no smoothing, just linear interp)
+    f_data_on_common = interp1d(x_data, y_data, kind="linear", bounds_error=False, fill_value=np.nan)
+    y_data_common = f_data_on_common(x_common)
+
+    # === plot ===
+    fig, (ax_main, ax_res) = plt.subplots(
+        2, 1, figsize=(9, 8),
+        gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
+    )
+
+    # 1σ posterior band (built from real draws)
+    plot_density_posterior_simple(
+        ax_main, x_common, y_med, y_lo, y_hi,
+        color='crimson', n_levels=20, zorder=2, label='1σ posterior'
+    )
+
+    # data points
+    ax_main.plot(x_data, y_data, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
+
+    ax_main.set_xlim(x_lo, x_hi)
+    ax_main.set_ylabel("Normalized number")
+    ax_main.legend(loc="upper left", fontsize=9, handlelength=1.6)
+    ax_main.xaxis.set_ticks_position("top")
+    ax_main.xaxis.set_label_position("top")
+    ax_main.set_xlabel("[Fe/H]")
+    ax_main.tick_params(axis="x", bottom=False)
+
+    # === residuals as a posterior ===
+    # define residuals pointwise on the same grid
+    r_med = y_med - y_data_common
+    r_lo  = y_lo  - y_data_common
+    r_hi  = y_hi  - y_data_common
+
+    # 1σ posterior band for residuals
+    plot_density_posterior_simple(
+        ax_res, x_common, r_med, r_lo, r_hi,
+        color='0.1', n_levels=12, zorder=2, label=None
+    )
+    ax_res.axhline(0.0, color="0.3", lw=1)
+    ax_res.set_ylabel("Model − Data")
+    ax_res.set_xlabel("[Fe/H]")
+
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    fig.savefig(save_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {save_path}")
+    return fig
 
 
 
@@ -484,7 +574,7 @@ def _save_corner(samples, weights, out_path):
         title_fmt=title_fmt,
         bins=40,
         smooth=0.8,
-        levels=[percentile]#[1 - np.exp(-0.5 * r**2) for r in [2]],  # 1σ and 2σ contours
+        levels=[1 - np.exp(-0.5 * r**2) for r in [2]],  # 1σ and 2σ contours
     )
 
     fig.savefig(out_path, dpi=300, bbox_inches="tight")

@@ -42,34 +42,36 @@ def loss_compute(y_true, y_pred, delta=1.0):
 
 
 
-def compute_ensemble_metric(GA_class, theory_count_array):
+
+def compute_EMD(GA_class, theory_count_array):
     """
-    Weighted ensemble of WRMSE, Huber, Cosine Similarity, with KS penalty.
-    All components are minimized.
+    Single-term MDF loss = 1D Wasserstein-1 (Earth Mover's Distance)
+    between observed and model MDFs on the [Fe/H] grid.
+    Both inputs are converted to probability masses via trapezoidal weights.
     """
-    # Core loss terms
-    wrmse_val = compute_wrmse(GA_class, theory_count_array)
-    huber_val = compute_huber(GA_class, theory_count_array)
-    cosine_val = compute_cosine_similarity(GA_class, theory_count_array)
+    feh  = np.asarray(GA_class.feh, dtype=float)
+    data = np.asarray(GA_class.normalized_count, dtype=float)
+    model= np.asarray(theory_count_array, dtype=float)
 
-    # KS distance: used as binary or continuous penalty
-    ks_val = compute_ks_distance(GA_class, theory_count_array)
-    
-    # ---- Weighted sum ----
-    alpha = 0.85  # WRMSE
-    beta = 0.05   # Cosine
-    gamma = 0.05  # Huber
-    ks_weight = 0.05
+    # trapezoidal bin widths (assumes feh is ascending)
+    w = np.empty_like(feh)
+    w[1:-1] = 0.5*(feh[2:]-feh[:-2])
+    w[0]    = feh[1]-feh[0]
+    w[-1]   = feh[-1]-feh[-2]
 
-    base_loss = (alpha * wrmse_val) + (beta * cosine_val) + (gamma * huber_val) + (ks_weight * ks_val)
+    # probability masses (area-normalize)
+    Pd = data * w; Pm = model * w
+    Pd /= Pd.sum() if Pd.sum() > 0 else 1.0
+    Pm /= Pm.sum() if Pm.sum() > 0 else 1.0
 
-    # ---- KS penalty ----
-    ks_threshold = 0.15  # If KS > this, trigger penalty
-    if ks_val > ks_threshold:
-        penalty_scale = 1.0 + 4.0 * (ks_val - ks_threshold)
-        base_loss *= penalty_scale
+    # CDFs and W1 = ∫ |F_m - F_d| dx  (discrete trapz)
+    Fd = np.cumsum(Pd)
+    Fm = np.cumsum(Pm)
+    W1 = np.trapz(np.abs(Fm - Fd), feh)
 
-    return base_loss
+    # scale by span so the magnitude is ~[0,1]
+    return float(W1 / (feh[-1] - feh[0]))
+
 
 
 def compute_wrmse(GA_class, theory_count_array):
@@ -100,7 +102,42 @@ def calculate_all_metrics(GA_class, theory_count_array):
     log_cosh = compute_log_cosh(GA_class, theory_count_array)
     ensemble = compute_ensemble_metric(GA_class, theory_count_array)
     ks = compute_ks_distance(GA_class, theory_count_array)
-    return ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh
+    EMD = compute_EMD(GA_class, theory_count_array)
+
+    return ks, ensemble, wrmse, mae, mape, huber, cos_similarity, log_cosh, EMD
+
+
+
+
+
+def compute_ensemble_metric(GA_class, theory_count_array):
+    """
+    Simple MDF loss:
+      0.6 * EMD (global shape/shift)
+    + 0.25 * WRMSE (local agreement)
+    + 0.15 * Peak-shift (mode location difference)
+    Uses your existing compute_EMD / compute_wrmse.
+    """
+    feh   = np.asarray(GA_class.feh, dtype=float)
+    data  = np.asarray(GA_class.normalized_count, dtype=float)
+    model = np.asarray(theory_count_array, dtype=float)
+
+    # existing pieces
+    W1   = compute_EMD(GA_class, model)
+    RMSE = compute_wrmse(GA_class, model)
+
+    # tiny peak-location term (area-normalize just for argmax stability)
+    ad = np.trapz(data, feh);  am = np.trapz(model, feh)
+    i_d = int(np.argmax(data  / (ad if ad > 0 else 1.0)))
+    i_m = int(np.argmax(model / (am if am > 0 else 1.0)))
+    Dpk = abs(feh[i_m] - feh[i_d]) / max(feh[-1] - feh[0], 1e-12)
+
+    return 0.6 * W1 + 0.25 * RMSE + 0.15 * Dpk
+
+
+
+
+
 
 
 
