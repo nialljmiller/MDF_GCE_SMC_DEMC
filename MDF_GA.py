@@ -65,135 +65,8 @@ def get_latest_csv(path):
     return os.path.join(path, max_f)
 
 
-def _plot_only(entry, bins=60):
-    import os
-    import numpy as np
-    import pandas as pd
-    from scipy.interpolate import CubicSpline
-    
-    import plotting.mdf_plotting as mdf_plotting
-    
-
-    if os.path.isdir(entry):
-        outdir = os.path.abspath(entry)
-        results_csv = get_latest_csv(outdir)
-    else:
-        results_csv = os.path.abspath(entry)
-        outdir = os.path.dirname(results_csv) or "."
 
 
-    
-    pcard = os.path.join(outdir, "bulge_pcard.txt")
-    npz_path = os.path.join(outdir, "walker_history.npz")
-    
-    params = Gal_GA.parse_inlist(pcard)
-    obs_file = params["obs_file"]
-    
-    feh, count = np.loadtxt(obs_file, usecols=(0, 1), unpack=True)
-    normalized_count = count / max(count.max(), 1.0)
-    
-    obs_age_data = load_bensby_data('data/Bensby_Data.tsv')
-    
-    GalGA = Gal_GA.GalacticEvolutionGA(
-        output_path=outdir,
-        iniab_header=params["iniab_header"],
-        sn1a_header=params["sn1a_header"],
-        sigma_2_list=params["sigma_2_list"],
-        tmax_1_list=params["tmax_1_list"],
-        tmax_2_list=params["tmax_2_list"],
-        infall_timescale_1_list=params["infall_timescale_1_list"],
-        infall_timescale_2_list=params["infall_timescale_2_list"],
-        comp_array=params["comp_array"],
-        imf_array=params["imf_array"],
-        sfe_array=params["sfe_array"],
-        delta_sfe_array=params["delta_sfe_array"],
-        imf_upper_limits=params["imf_upper_limits"],
-        sn1a_assumptions=params["sn1a_assumptions"],
-        stellar_yield_assumptions=params["stellar_yield_assumptions"],
-        mgal_values=params["mgal_values"],
-        nb_array=params["nb_array"],
-        sn1a_rates=params["sn1a_rates"],
-        timesteps=params["timesteps"],
-        A1=params["A1"],
-        A2=params["A2"],
-        feh=feh,
-        normalized_count=normalized_count,
-        obs_age_data=obs_age_data,
-        loss_metric=params["loss_metric"],
-        obs_age_data_loss_metric=params["obs_age_data_loss_metric"],
-        obs_age_data_target=params["obs_age_data_target"],
-        mdf_vs_age_weight=params["mdf_vs_age_weight"],
-        fancy_mutation=params["fancy_mutation"],
-        shrink_range=params["shrink_range"],
-        gaussian_sigma_scale=params.get("gaussian_sigma_scale", 0.01),
-        crossover_noise_fraction=params.get("crossover_noise_fraction", 0.05),
-        perturbation_strength=params.get("perturbation_strength", 0.1),
-        tournament_size=params["tournament_size"],
-        threshold=params["selection_threshold"],
-        cxpb=params["crossover_probability"],
-        mutpb=params["mutation_probability"],
-        physical_constraints_freq=params["physical_constraints_freq"],
-        exploration_steps=params["exploration_steps"],
-        PP=False,
-        demc_hybrid=False,
-        plot_mode="plot-only",
-    )
-    
-    df = pd.read_csv(results_csv)
-    cols = [c for c in GalGA.metric_header if c in df.columns]
-    GalGA.results = df[cols].values.tolist()
-    
-    if "loss" not in df.columns and "fitness" in df.columns:
-        df["loss"] = df["fitness"]
-        df.to_csv(results_csv, index=False)
-    
-    GalGA.walker_history = {}
-    GalGA.mdf_data = []
-    GalGA.alpha_data = []
-    GalGA.age_data = []
-    GalGA.MDFs = []
-    
-    data = np.load(npz_path, allow_pickle=True)
-    
-    walker_ids = data.get("walker_ids", None)
-    histories = data.get("histories", None)
-    if walker_ids is not None and histories is not None:
-        GalGA.walker_history = {
-            int(wid): list(hist) for wid, hist in zip(walker_ids, histories)
-        }
-    
-    mdf_arr = data.get("mdf_data", None)
-    if mdf_arr is not None:
-        GalGA.mdf_data = [ (np.asarray(x), np.asarray(y)) for (x, y) in mdf_arr ]
-        for x, y in GalGA.mdf_data:
-            if len(x) >= 4 and len(x) == len(y):
-                GalGA.MDFs.append(CubicSpline(x, np.clip(y, 0, None)))
-    
-
-
-    raw_alpha = data.get("alpha_data", None)
-    if raw_alpha is not None:
-        clean_alpha = []
-        for model_alpha in raw_alpha:
-            elems = []
-            for pair in model_alpha:
-                # Expect pair like [feh_vec, alpha_vec]
-                x = np.asarray(pair[0], dtype=np.float64).ravel()
-                y = np.asarray(pair[1], dtype=np.float64).ravel()
-                m = np.isfinite(x) & np.isfinite(y)
-                elems.append((x[m], y[m]))
-            clean_alpha.append(elems)
-        GalGA.alpha_data = clean_alpha
-
-
-
-
-    age_arr = data.get("age_data", None)
-    if age_arr is not None:
-        GalGA.age_data = [ (np.asarray(a[0]), np.asarray(a[1])) for a in age_arr ]
-    
-    mdf_plotting.generate_all_plots(GalGA, feh, normalized_count, results_file=results_csv)
-    print(f"[plot-only] plots written to: {outdir}")
 
 def load_bensby_data(file_path='data/Bensby_Data.tsv'):
     obs_age_data = pd.read_csv(file_path, sep='\t')
@@ -201,101 +74,8 @@ def load_bensby_data(file_path='data/Bensby_Data.tsv'):
     print(f"Columns available: {list(obs_age_data.columns)}")
     return obs_age_data
 
-if len(sys.argv) > 1:
-    arg_path = sys.argv[1] + '/'
-    if os.path.isdir(arg_path):
-        pcard_to_be_parsed = os.path.join(arg_path, 'bulge_pcard.txt')
-    else:
-        pcard_to_be_parsed = arg_path
-else:
-    pcard_to_be_parsed = 'bulge_pcard.txt'
 
-plot_tokens = {"true", "1", "plot", "--plot", "-p"}
-plot_only = False
-if len(sys.argv) > 2:
-    token = str(sys.argv[2]).lower()
-    plot_only = token in plot_tokens
 
-if plot_only:
-    target = arg_path if arg_path is not None else "."
-    _plot_only(target, bins=69)
-    print("done, i shall now die :)")
-    sys.exit(0)
-
-params = Gal_GA.parse_inlist(pcard_to_be_parsed)
-
-output_path = params['output_path']
-os.makedirs(output_path, exist_ok=True)
-
-dest_pcard = os.path.join(output_path, 'bulge_pcard.txt')
-src_pcard = os.path.abspath(pcard_to_be_parsed)
-dst_pcard = os.path.abspath(dest_pcard)
-if src_pcard != dst_pcard:
-    shutil.copy2(src_pcard, dest_pcard)
-
-obs_file = params['obs_file']
-iniab_header = params['iniab_header']
-sn1a_header = params['sn1a_header']
-sigma_2_list = params['sigma_2_list']
-tmax_1_list = params['tmax_1_list']
-tmax_2_list = params['tmax_2_list']
-infall_timescale_1_list = params['infall_timescale_1_list']
-infall_timescale_2_list = params['infall_timescale_2_list']
-comp_array = params['comp_array']
-sfe_array = params['sfe_array']
-imf_array = params['imf_array']
-imf_upper_limits = params['imf_upper_limits']
-sn1a_assumptions = params['sn1a_assumptions']
-stellar_yield_assumptions = params['stellar_yield_assumptions']
-mgal_values = params['mgal_values']
-nb_array = params['nb_array']
-sn1a_rates = params['sn1a_rates']
-timesteps = params['timesteps']
-A2 = params['A2']
-A1 = params['A1']
-physical_constraints_freq = params['physical_constraints_freq']
-delta_sfe_array = params['delta_sfe_array']
-exploration_steps = params['exploration_steps']
-popsize = params['popsize']
-
-if popsize < 0:
-    popsize = int(cpu_count() * (popsize * -1))
-
-generations = params['generations']
-crossover_probability = params['crossover_probability']
-mutation_probability = params['mutation_probability']
-tournament_size = params['tournament_size']
-selection_threshold = params['selection_threshold']
-
-demc_fraction = params.get('demc_fraction', 0.4)
-obs_age_data_loss_metric = params['obs_age_data_loss_metric']
-obs_age_data_target = params['obs_age_data_target']
-mdf_vs_age_weight = params['mdf_vs_age_weight']
-rand_seed = params['seed']
-
-if rand_seed > 0:
-    _random.seed(rand_seed)
-    _np.random.seed(rand_seed)
-    _os.environ['PYTHONHASHSEED'] = str(rand_seed)
-
-output_interval = params.get('output_interval')
-loss_metric = params['loss_metric']
-fancy_mutation = params['fancy_mutation']
-shrink_range = params['shrink_range']
-
-gaussian_sigma_scale = params.get('gaussian_sigma_scale', 0.01)
-crossover_noise_fraction = params.get('crossover_noise_fraction', 0.05)
-perturbation_strength = params.get('perturbation_strength', 0.1)
-
-feh, count = np.loadtxt(obs_file, usecols=(0, 1), unpack=True)
-normalized_count = count / count.max()
-
-obs_age_data = load_bensby_data('data/Bensby_Data.tsv')
-
-GalGA = None
-os.makedirs(output_path, exist_ok=True)
-os.makedirs(os.path.join(output_path, 'loss'), exist_ok=True)
-os.makedirs(os.path.join(output_path, 'analysis'), exist_ok=True)
 
 def save_walker_history():
     if not hasattr(GalGA, 'walker_history'):
@@ -325,6 +105,24 @@ def load_walker_history():
     
     print("Walker history loaded")
     return walker_history
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def run_ga(cp_manager):
     global GalGA
@@ -513,7 +311,7 @@ def run_ga(cp_manager):
         'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
         'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
         'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
-        'cosine', 'log_cosh', 'fitness', 'age_meta_fitness', 'physics_penalty'
+        'cosine', 'log_cosh', 'EMD', 'fitness', 'age_meta_fitness', 'physics_penalty'
     ]
     
     results_df = pd.DataFrame(GalGA.results, columns=col_names) if GalGA.results else pd.DataFrame(columns=col_names)
@@ -533,76 +331,264 @@ def run_ga(cp_manager):
     
     return results_file
 
-def load_ga_for_plotting(results_file):
-    global GalGA
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _plot_only(entry, bins=60):
+    import os
+    import numpy as np
+    import pandas as pd
+    from scipy.interpolate import CubicSpline
+    
+    import plotting.mdf_plotting as mdf_plotting
+    
+
+    if os.path.isdir(entry):
+        outdir = os.path.abspath(entry)
+        results_csv = get_latest_csv(outdir)
+    else:
+        results_csv = os.path.abspath(entry)
+        outdir = os.path.dirname(results_csv) or "."
+
+
+    
+    pcard = os.path.join(outdir, "bulge_pcard.txt")
+    npz_path = os.path.join(outdir, "walker_history.npz")
+    
+    params = Gal_GA.parse_inlist(pcard)
+    obs_file = params["obs_file"]
+    
+    feh, count = np.loadtxt(obs_file, usecols=(0, 1), unpack=True)
+    normalized_count = count / max(count.max(), 1.0)
+    
+    obs_age_data = load_bensby_data('data/Bensby_Data.tsv')
     
     GalGA = Gal_GA.GalacticEvolutionGA(
-        output_path=output_path,
-        iniab_header=iniab_header,
-        sn1a_header=sn1a_header,
-        sigma_2_list=sigma_2_list,
-        tmax_1_list=tmax_1_list,
-        tmax_2_list=tmax_2_list,
-        infall_timescale_1_list=infall_timescale_1_list,
-        infall_timescale_2_list=infall_timescale_2_list,
-        comp_array=comp_array,
-        imf_array=imf_array,
-        sfe_array=sfe_array,
-        delta_sfe_array=delta_sfe_array,
-        imf_upper_limits=imf_upper_limits,
-        sn1a_assumptions=sn1a_assumptions,
-        stellar_yield_assumptions=stellar_yield_assumptions,
-        mgal_values=mgal_values,
-        nb_array=nb_array,
-        sn1a_rates=sn1a_rates,
-        timesteps=timesteps,
-        A1=A1,
-        A2=A2,
+        output_path=outdir,
+        iniab_header=params["iniab_header"],
+        sn1a_header=params["sn1a_header"],
+        sigma_2_list=params["sigma_2_list"],
+        tmax_1_list=params["tmax_1_list"],
+        tmax_2_list=params["tmax_2_list"],
+        infall_timescale_1_list=params["infall_timescale_1_list"],
+        infall_timescale_2_list=params["infall_timescale_2_list"],
+        comp_array=params["comp_array"],
+        imf_array=params["imf_array"],
+        sfe_array=params["sfe_array"],
+        delta_sfe_array=params["delta_sfe_array"],
+        imf_upper_limits=params["imf_upper_limits"],
+        sn1a_assumptions=params["sn1a_assumptions"],
+        stellar_yield_assumptions=params["stellar_yield_assumptions"],
+        mgal_values=params["mgal_values"],
+        nb_array=params["nb_array"],
+        sn1a_rates=params["sn1a_rates"],
+        timesteps=params["timesteps"],
+        A1=params["A1"],
+        A2=params["A2"],
         feh=feh,
         normalized_count=normalized_count,
         obs_age_data=obs_age_data,
-        loss_metric=loss_metric,
-        obs_age_data_loss_metric = obs_age_data_loss_metric,
-        obs_age_data_target = obs_age_data_target,
-        mdf_vs_age_weight = mdf_vs_age_weight,
-        fancy_mutation=fancy_mutation,
-        shrink_range=shrink_range,
-        gaussian_sigma_scale=gaussian_sigma_scale,
-        crossover_noise_fraction=crossover_noise_fraction,
-        perturbation_strength=perturbation_strength,
-        tournament_size=tournament_size,
-        threshold=selection_threshold,
-        cxpb=crossover_probability,
-        mutpb=mutation_probability,
-        physical_constraints_freq=physical_constraints_freq,
-        exploration_steps=exploration_steps,
-        PP=False
+        loss_metric=params["loss_metric"],
+        obs_age_data_loss_metric=params["obs_age_data_loss_metric"],
+        obs_age_data_target=params["obs_age_data_target"],
+        mdf_vs_age_weight=params["mdf_vs_age_weight"],
+        fancy_mutation=params["fancy_mutation"],
+        shrink_range=params["shrink_range"],
+        gaussian_sigma_scale=params.get("gaussian_sigma_scale", 0.01),
+        crossover_noise_fraction=params.get("crossover_noise_fraction", 0.05),
+        perturbation_strength=params.get("perturbation_strength", 0.1),
+        tournament_size=params["tournament_size"],
+        threshold=params["selection_threshold"],
+        cxpb=params["crossover_probability"],
+        mutpb=params["mutation_probability"],
+        physical_constraints_freq=params["physical_constraints_freq"],
+        exploration_steps=params["exploration_steps"],
+        PP=False,
+        demc_hybrid=False,
+        plot_mode="plot-only",
     )
     
-    df = pd.read_csv(results_file)
+    df = pd.read_csv(results_csv)
+    cols = [c for c in GalGA.metric_header if c in df.columns]
+    GalGA.results = df[cols].values.tolist()
     
-    GalGA.results = df.values.tolist()
-    
-    x_vals = np.linspace(-2, 1, 100)
-    y_vals = np.zeros_like(x_vals)
-    GalGA.mdf_data = [(x_vals, y_vals)]
-    GalGA.labels = ["Placeholder"]
+    if "loss" not in df.columns and "fitness" in df.columns:
+        df["loss"] = df["fitness"]
+        df.to_csv(results_csv, index=False)
     
     GalGA.walker_history = {}
+    GalGA.mdf_data = []
+    GalGA.alpha_data = []
+    GalGA.age_data = []
+    GalGA.MDFs = []
     
-    print(f"Loaded {len(df)} model results")
-    
-    return results_file
 
-if __name__ == "__main__":
-    results_file = os.path.join(output_path, 'simulation_results.csv')
-    make_history = True
+
+
+
+    data = np.load(npz_path, allow_pickle=True)
+
     
-    if make_history:
-        results_file = checkpoint.run_with_checkpoint(run_ga, output_path)
-        save_walker_history()
+    walker_ids = data.get("walker_ids", None)
+    histories = data.get("histories", None)
+    GalGA.walker_history = {int(wid): list(hist) for wid, hist in zip(walker_ids, histories)}
+
+    
+    mdf_arr = data.get("mdf_data", None)
+    GalGA.mdf_data = [ (np.asarray(x), np.asarray(y)) for (x, y) in mdf_arr ]
+    for x, y in GalGA.mdf_data:
+        if len(x) >= 4 and len(x) == len(y):
+            GalGA.MDFs.append(CubicSpline(x, np.clip(y, 0, None)))
+
+
+    raw_alpha = data.get("alpha_data", None)
+    clean_alpha = []
+    for model_alpha in raw_alpha:
+        elems = []
+        for pair in model_alpha:
+            # Expect pair like [feh_vec, alpha_vec]
+            x = np.asarray(pair[0], dtype=np.float64).ravel()
+            y = np.asarray(pair[1], dtype=np.float64).ravel()
+            m = np.isfinite(x) & np.isfinite(y)
+            elems.append((x[m], y[m]))
+        clean_alpha.append(elems)
+    GalGA.alpha_data = clean_alpha
+
+
+    age_arr = data.get("age_data", None)
+    GalGA.age_data = [ (np.asarray(a[0]), np.asarray(a[1])) for a in age_arr ]
+
+
+    
+    mdf_plotting.generate_all_plots(GalGA, feh, normalized_count, results_file=results_csv)
+    print(f"[plot-only] plots written to: {outdir}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+if len(sys.argv) > 1:
+    arg_path = sys.argv[1] + '/'
+    if os.path.isdir(arg_path):
+        pcard_to_be_parsed = os.path.join(arg_path, 'bulge_pcard.txt')
     else:
-        load_ga_for_plotting(results_file)
-        GalGA.walker_history = load_walker_history()
+        pcard_to_be_parsed = arg_path
+else:
+    pcard_to_be_parsed = 'bulge_pcard.txt'
+
+plot_tokens = {"true", "1", "plot", "--plot", "-p"}
+plot_only = False
+if len(sys.argv) > 2:
+    token = str(sys.argv[2]).lower()
+    plot_only = token in plot_tokens
+
+if plot_only:
+    target = arg_path if arg_path is not None else "."
+    _plot_only(target, bins=69)
+    print("done, i shall now die :)")
+    sys.exit(0)
+
+else: 
+    params = Gal_GA.parse_inlist(pcard_to_be_parsed)
+
+    output_path = params['output_path']
+    os.makedirs(output_path, exist_ok=True)
+
+    dest_pcard = os.path.join(output_path, 'bulge_pcard.txt')
+    src_pcard = os.path.abspath(pcard_to_be_parsed)
+    dst_pcard = os.path.abspath(dest_pcard)
+    if src_pcard != dst_pcard:
+        shutil.copy2(src_pcard, dest_pcard)
+
+    obs_file = params['obs_file']
+    iniab_header = params['iniab_header']
+    sn1a_header = params['sn1a_header']
+    sigma_2_list = params['sigma_2_list']
+    tmax_1_list = params['tmax_1_list']
+    tmax_2_list = params['tmax_2_list']
+    infall_timescale_1_list = params['infall_timescale_1_list']
+    infall_timescale_2_list = params['infall_timescale_2_list']
+    comp_array = params['comp_array']
+    sfe_array = params['sfe_array']
+    imf_array = params['imf_array']
+    imf_upper_limits = params['imf_upper_limits']
+    sn1a_assumptions = params['sn1a_assumptions']
+    stellar_yield_assumptions = params['stellar_yield_assumptions']
+    mgal_values = params['mgal_values']
+    nb_array = params['nb_array']
+    sn1a_rates = params['sn1a_rates']
+    timesteps = params['timesteps']
+    A2 = params['A2']
+    A1 = params['A1']
+    physical_constraints_freq = params['physical_constraints_freq']
+    delta_sfe_array = params['delta_sfe_array']
+    exploration_steps = params['exploration_steps']
+    popsize = params['popsize']
+
+    if popsize < 0:
+        popsize = int(cpu_count() * (popsize * -1))
+
+    generations = params['generations']
+    crossover_probability = params['crossover_probability']
+    mutation_probability = params['mutation_probability']
+    tournament_size = params['tournament_size']
+    selection_threshold = params['selection_threshold']
+
+    demc_fraction = params.get('demc_fraction', 0.4)
+    obs_age_data_loss_metric = params['obs_age_data_loss_metric']
+    obs_age_data_target = params['obs_age_data_target']
+    mdf_vs_age_weight = params['mdf_vs_age_weight']
+    rand_seed = params['seed']
+
+    if rand_seed > 0:
+        _random.seed(rand_seed)
+        _np.random.seed(rand_seed)
+        _os.environ['PYTHONHASHSEED'] = str(rand_seed)
+
+    output_interval = params.get('output_interval')
+    loss_metric = params['loss_metric']
+    fancy_mutation = params['fancy_mutation']
+    shrink_range = params['shrink_range']
+
+    gaussian_sigma_scale = params.get('gaussian_sigma_scale', 0.01)
+    crossover_noise_fraction = params.get('crossover_noise_fraction', 0.05)
+    perturbation_strength = params.get('perturbation_strength', 0.1)
+
+    feh, count = np.loadtxt(obs_file, usecols=(0, 1), unpack=True)
+    normalized_count = count / count.max()
+
+    obs_age_data = load_bensby_data('data/Bensby_Data.tsv')
+
+    GalGA = None
+    os.makedirs(output_path, exist_ok=True)
+    os.makedirs(os.path.join(output_path, 'loss'), exist_ok=True)
+    os.makedirs(os.path.join(output_path, 'analysis'), exist_ok=True)
     
-    mdf_plotting.generate_all_plots(GalGA, feh, normalized_count, results_file)
+    results_file = checkpoint.run_with_checkpoint(run_ga, output_path)
+    save_walker_history()
+

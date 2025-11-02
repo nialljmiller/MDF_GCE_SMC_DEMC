@@ -1483,11 +1483,6 @@ class GalacticEvolutionGA:
 
 
 
-
-
-
-
-
         def _repair_preflight(ind):
 
 
@@ -1731,14 +1726,6 @@ class GalacticEvolutionGA:
 
         penalty_factor = apply_physics_penalty(primary_loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data,GCE_model=GCE_model)
 
-        if self.physical_constraints_freq > 0:
-            if self.physics_timer < self.physical_constraints_freq:
-                self.physics_timer = self.physics_timer + 1
-            else:
-                self.physics_timer = 0
-                primary_loss_value = primary_loss_value * penalty_factor
-
-
         # Return the result with a detailed label
         label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
                  f'sigma2: {sigma_2:.3f}, t1: {t_1:.3f}, t2: {t_2:.3f}, '
@@ -1819,12 +1806,26 @@ class GalacticEvolutionGA:
         df.to_csv(results_file, index=False)
         print(f"Results saved to: {results_file}")
 
+        self.save_walker_history()
+
         try:
             mdf_plotting.generate_all_plots(self, self.feh, self.normalized_count, results_file)
         except:
             pass
 
 
+    def save_walker_history(self):
+    
+        np.savez_compressed(
+            os.path.join(self.output_path, 'walker_history.npz'),
+            walker_ids=np.array(list(self.walker_history.keys()), dtype=np.int32),
+            histories=np.array([np.array(h) for h in self.walker_history.values()], dtype=object),
+            mdf_data=np.array(self.mdf_data, dtype=object),
+            alpha_data=np.array(self.alpha_data, dtype=object),
+            age_data=np.array(getattr(self, 'age_data', []), dtype=object)
+        )
+        
+        print("Walker history saved")
 
 
 
