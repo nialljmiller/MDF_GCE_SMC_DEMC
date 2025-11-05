@@ -120,7 +120,7 @@ def compute_JS(GA_class, model_y):
     js_nats = 0.5*(np.sum(p*np.log(p/m)) + np.sum(q*np.log(q/m)))
     return float(js_nats / np.log(2.0))  # bits, in [0,1]
 
-def compute_mdf_loss(GA_class, theory_count_array, w1_weight=0.6):
+def compute_ensemble_metric(GA_class, theory_count_array, w1_weight=0.6):
     """Convex combo of two standard metrics: W1 (location) + JS (shape)."""
     w1_weight=0.6
     W1 = compute_EMD(GA_class, theory_count_array)
