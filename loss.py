@@ -1,7 +1,9 @@
 # Authors: N Miller
 
+
 import numpy as np
 
+EPS = 1e-12
 
 def compute_ks_distance(GA_class, theory_count_array):
     """
@@ -42,38 +44,6 @@ def loss_compute(y_true, y_pred, delta=1.0):
 
 
 
-
-def compute_EMD(GA_class, theory_count_array):
-    """
-    Single-term MDF loss = 1D Wasserstein-1 (Earth Mover's Distance)
-    between observed and model MDFs on the [Fe/H] grid.
-    Both inputs are converted to probability masses via trapezoidal weights.
-    """
-    feh  = np.asarray(GA_class.feh, dtype=float)
-    data = np.asarray(GA_class.normalized_count, dtype=float)
-    model= np.asarray(theory_count_array, dtype=float)
-
-    # trapezoidal bin widths (assumes feh is ascending)
-    w = np.empty_like(feh)
-    w[1:-1] = 0.5*(feh[2:]-feh[:-2])
-    w[0]    = feh[1]-feh[0]
-    w[-1]   = feh[-1]-feh[-2]
-
-    # probability masses (area-normalize)
-    Pd = data * w; Pm = model * w
-    Pd /= Pd.sum() if Pd.sum() > 0 else 1.0
-    Pm /= Pm.sum() if Pm.sum() > 0 else 1.0
-
-    # CDFs and W1 = ∫ |F_m - F_d| dx  (discrete trapz)
-    Fd = np.cumsum(Pd)
-    Fm = np.cumsum(Pm)
-    W1 = np.trapz(np.abs(Fm - Fd), feh)
-
-    # scale by span so the magnitude is ~[0,1]
-    return float(W1 / (feh[-1] - feh[0]))
-
-
-
 def compute_wrmse(GA_class, theory_count_array):
     return wrmse_compute(theory_count_array, GA_class.normalized_count, GA_class.placeholder_sigma_array)
 
@@ -108,33 +78,54 @@ def calculate_all_metrics(GA_class, theory_count_array):
 
 
 
+import numpy as np
 
+EPS = 1e-12
 
-def compute_ensemble_metric(GA_class, theory_count_array):
-    """
-    Simple MDF loss:
-      0.6 * EMD (global shape/shift)
-    + 0.25 * WRMSE (local agreement)
-    + 0.15 * Peak-shift (mode location difference)
-    Uses your existing compute_EMD / compute_wrmse.
-    """
-    feh   = np.asarray(GA_class.feh, dtype=float)
-    data  = np.asarray(GA_class.normalized_count, dtype=float)
-    model = np.asarray(theory_count_array, dtype=float)
+def compute_EMD(GA_class, model_y):
+    x    = np.asarray(GA_class.feh, dtype=float)
+    data = np.asarray(GA_class.normalized_count, dtype=float)
+    model= np.asarray(model_y, dtype=float)
 
-    # existing pieces
-    W1   = compute_EMD(GA_class, model)
-    RMSE = compute_wrmse(GA_class, model)
+    # half-widths
+    w = np.empty_like(x)
+    w[1:-1] = 0.5*(x[2:] - x[:-2])
+    w[0]    = 0.5*(x[1]  - x[0])
+    w[-1]   = 0.5*(x[-1] - x[-2])
 
-    # tiny peak-location term (area-normalize just for argmax stability)
-    ad = np.trapz(data, feh);  am = np.trapz(model, feh)
-    i_d = int(np.argmax(data  / (ad if ad > 0 else 1.0)))
-    i_m = int(np.argmax(model / (am if am > 0 else 1.0)))
-    Dpk = abs(feh[i_m] - feh[i_d]) / max(feh[-1] - feh[0], 1e-12)
+    Pd = np.clip(data,  0.0, None) * w;  Pd = Pd / (Pd.sum() if Pd.sum()>0 else 1.0)
+    Pm = np.clip(model, 0.0, None) * w;  Pm = Pm / (Pm.sum() if Pm.sum()>0 else 1.0)
 
-    return 0.6 * W1 + 0.25 * RMSE + 0.15 * Dpk
+    Fd = np.cumsum(Pd)
+    Fm = np.cumsum(Pm)
+    W1 = np.trapz(np.abs(Fm - Fd), x)
+    return float(W1 / (x[-1] - x[0]))  # ~[0,1]
 
+def compute_JS(GA_class, model_y):
+    x    = np.asarray(GA_class.feh, dtype=float)
+    data = np.asarray(GA_class.normalized_count, dtype=float)
+    model= np.asarray(model_y, dtype=float)
 
+    # half-widths → masses
+    w = np.empty_like(x)
+    w[1:-1] = 0.5*(x[2:] - x[:-2])
+    w[0]    = 0.5*(x[1]  - x[0])
+    w[-1]   = 0.5*(x[-1] - x[-2])
+
+    p = np.clip(data,  0.0, None) * w; p = p / (p.sum() if p.sum()>0 else 1.0)
+    q = np.clip(model, 0.0, None) * w; q = q / (q.sum() if q.sum()>0 else 1.0)
+
+    p = np.clip(p, EPS, None); q = np.clip(q, EPS, None)
+    m = 0.5*(p+q)
+    js_nats = 0.5*(np.sum(p*np.log(p/m)) + np.sum(q*np.log(q/m)))
+    return float(js_nats / np.log(2.0))  # bits, in [0,1]
+
+def compute_mdf_loss(GA_class, theory_count_array, w1_weight=0.6):
+    """Convex combo of two standard metrics: W1 (location) + JS (shape)."""
+    w1_weight=0.6
+    W1 = compute_EMD(GA_class, theory_count_array)
+    JS = compute_JS (GA_class, theory_count_array)
+    return float(w1_weight*W1 + (1.0 - w1_weight)*JS)
 
 
 
