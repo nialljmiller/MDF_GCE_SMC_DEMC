@@ -97,9 +97,9 @@ class UncertaintyAnalysis:
         # Sort by fitness (lower is better)
         self.df_sorted = self.df.sort_values(self.fitness_col, ascending=True)
         
-        print(f"Loaded {len(self.df)} models from {results_file}")
-        print(f"Best fitness: {self.df_sorted[self.fitness_col].iloc[0]:.6f}")
-        print(f"Available continuous parameters: {self.continuous_params}")
+        print(f"Loaded {len(self.df)} models from {results_file.split('/')[-1]}")
+        #print(f"Best fitness: {self.df_sorted[self.fitness_col].iloc[0]:.6f}")
+        #print(f"Available continuous parameters: {self.continuous_params}")
 
 
     # ---- helpers -----------------------------------------------------------
@@ -1973,20 +1973,46 @@ if __name__ == "__main__":
         suf_txt = f"_gen_{suf}" if suf is not None else "(no gen suffix)"
         print(f"  [{idx:>2}] {name:30s}  primary={os.path.basename(primary)} {suf_txt}  size={size}")
 
-    sel = input("\nEnter indices to overlay (e.g., 1 3 5 or 1,3,5). Press Enter for ALL: ").strip()
+
+    # Assuming 'found' is defined earlier as a list of folders
+
+    sel = input("\nEnter indices to overlay (e.g., 1 3 5 or 1-3,5-7). Press Enter for ALL: ").strip()
 
     # default-to-all semantics
     if not sel or sel.lower() in {"all", "a", "*"}:
         idxs = list(range(1, len(found) + 1))
         print(f"Selected ALL {len(found)} folders.")
     else:
-        # parse indices
+        # parse indices, including ranges
         tokens = re.split(r'[,\s]+', sel)
+        idx_set = set()  # Use a set to avoid duplicates
         try:
-            idxs = sorted(set(int(t) for t in tokens if t))
+            for t in tokens:
+                if not t:
+                    continue
+                if '-' in t:
+                    parts = t.split('-')
+                    if len(parts) != 2:
+                        raise ValueError("Invalid range format.")
+                    start = int(parts[0])
+                    end = int(parts[1])
+                    if start > end:
+                        raise ValueError("Range start must not exceed end.")
+                    idx_set.update(range(start, end + 1))
+                else:
+                    idx_set.add(int(t))
         except ValueError:
-            print("Invalid input. Use numbers separated by space/comma or 'all'.")
+            print("Invalid input. Use numbers/ranges separated by space/comma (e.g., 1-3,5) or 'all'.")
             sys.exit(1)
+        
+        idxs = sorted(idx_set)
+        # Optional: Validate indices are within bounds (recommended for robustness)
+        max_idx = len(found)
+        if any(idx < 1 or idx > max_idx for idx in idxs):
+            print(f"Invalid indices: Must be between 1 and {max_idx}.")
+            sys.exit(1)
+
+
 
     # validate & build selection
     chosen = []
@@ -2054,6 +2080,7 @@ if __name__ == "__main__":
         )
         print(f"[combine_posterior] wrote: {npz_out}")
     # --- end NEW ---
+        print(f"#####################################\n\n\n\n\n")
 
 
 
@@ -2065,7 +2092,7 @@ if __name__ == "__main__":
         primary_csv = _choose_primary_csv(csvs)
         out_root = os.path.join(path, "analysis", os.path.splitext(os.path.basename(primary_csv))[0]) + os.sep
         a = UncertaintyAnalysis(results_file=primary_csv, output_path=out_root)
-        if a.df_sorted[a.fitness_col].iloc[0] < 0.03:
+        if a.df_sorted[a.fitness_col].iloc[0] < 0.3:
             # prefer folder-specific bulge_pcard.txt if present
             pcard_here = os.path.join(path, "bulge_pcard.txt")
             if os.path.isfile(pcard_here):

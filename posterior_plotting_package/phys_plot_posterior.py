@@ -309,7 +309,7 @@ def post_plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall
         percentile = choose_cutoff_lognorm_mixture(results_df['fitness'].values, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6)
 
     
-    save_path = GalGA.output_path + save_path
+    save_path = GalGA.output_path + '/Physics/' + save_path
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     
     # Define color palette
@@ -607,9 +607,119 @@ Final Masses (median):
     
     print(f"Physics plot with posterior saved: {save_path}")
     
+    post_plot_physics_panels_standalone(GalGA, results_df=results_df, use_posterior=use_posterior, percentile=percentile, max_models=max_models, ensemble=ensemble)
+
     return fig
 
 
-if __name__ == '__main__':
-    print("Physics plots module with posterior uncertainty bands loaded.")
+
+
+def _physics_draws_and_ensemble(GalGA, results_df, percentile, n_draws, age_hi_gyr=14.0, n_age=200):
+    draws_df, draw_w = posterior_resample(
+        results_df,
+        weight_col='posterior_w',
+        fitness_col='fitness',
+        percentile=percentile,
+        n_draws=n_draws,
+        resampling='systematic'
+    )
+    ens = compute_physics_ensemble(GalGA, draws_df, draw_w, max_models=n_draws)
+    return ens
+
+def _plot_band(ax, x, med, lo, hi, color, label=None, n_levels=20):
+    plot_density_posterior_simple(ax, x, med, lo, hi, color=color, n_levels=n_levels, zorder=2, label=label)
+
+
+
+def post_plot_physics_panels_standalone(GalGA, results_df=None, use_posterior=True, percentile=10, max_models=20, ensemble=None):
+
+    save_prefix = 'Physics/'
+    
+    save_prefix = os.path.join(GalGA.output_path, save_prefix)
+    os.makedirs(os.path.dirname(save_prefix) or ".", exist_ok=True)
+
+
+
+
+    if use_posterior and results_df is not None and not results_df.empty:
+        if ensemble is None:
+            ens = _physics_draws_and_ensemble(GalGA, results_df, percentile, max_models)
+        else:
+            ens = ensemble
+            
+        ages = ens['sfr']['x']
+        sfr = ens['sfr']; inflow = ens['inflow']; outflow = ens['outflow']
+        gas = ens['gas_mass']; stellar = ens['stellar_mass']; metal = ens['metallicity']
+    else:
+        # single best model fallback uses exact same extraction as in your multi-panel
+        GCE_model = reconstruct_best_model(GalGA, results_df)
+        phys = extract_physics_from_model(GCE_model)
+        ages = phys['ages'][:-1]
+        sfr = {'median': phys['sfr_rates'] , 'lower': None, 'upper': None}
+        inflow = {'median': phys['inflow_rates'], 'lower': None, 'upper': None}
+        outflow = {'median': phys['outflow_rates'], 'lower': None, 'upper': None}
+        gas = {'median': phys['gas_masses'][:-1], 'lower': None, 'upper': None}
+        stellar = {'median': phys['stellar_masses'][:-1], 'lower': None, 'upper': None}
+        metal = {'median': phys['metallicity'], 'lower': None, 'upper': None}
+
+    # 1) Inflow (standalone)
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if inflow['lower'] is not None:
+        _plot_band(ax, ages, inflow['median'], inflow['lower'], inflow['upper'], color='#1f77b4', label='1σ posterior')
+    else:
+        ax.plot(ages, inflow['median'], color='#1f77b4', lw=2.5)
+    ax.set_xlabel('Universe Age (Gyr)'); ax.set_ylabel(r'Inflow ($M_\odot$ yr$^{-1}$)')
+    ax.set_xlim(0, ages[-1]); ax.set_ylim(bottom=0); ax.grid(True, alpha=0.2)
+    fig.savefig(f"{save_prefix}inflow.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+
+    # 2) SFR (standalone)
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if sfr['lower'] is not None:
+        _plot_band(ax, ages, sfr['median'], np.maximum(sfr['lower'], 1e-10), sfr['upper'], color='#ff7f0e')
+        ax.set_yscale('log')
+    else:
+        ax.semilogy(ages, sfr['median'], color='#ff7f0e', lw=2.5)
+    ax.set_xlabel('Universe Age (Gyr)'); ax.set_ylabel(r'SFR ($M_\odot$ yr$^{-1}$)')
+    ax.set_xlim(0, ages[-1]); ax.grid(True, alpha=0.2)
+    fig.savefig(f"{save_prefix}sfr.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+
+    # 3) Flows: inflow & outflow (standalone)
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if inflow['lower'] is not None:
+        _plot_band(ax, ages, inflow['median'], inflow['lower'], inflow['upper'], color='#1f77b4', label='Inflow 1σ')
+    else:
+        ax.plot(ages, inflow['median'], color='#1f77b4', lw=2.0, label='Inflow')
+    if outflow['lower'] is not None:
+        _plot_band(ax, ages, outflow['median'], outflow['lower'], outflow['upper'], color='#d62728', label='Outflow 1σ')
+    else:
+        ax.plot(ages, outflow['median'], color='#d62728', lw=2.0, label='Outflow')
+    ax.set_xlabel('Universe Age (Gyr)'); ax.set_ylabel(r'Flow ($M_\odot$ yr$^{-1}$)')
+    ax.set_xlim(0, ages[-1]); ax.grid(True, alpha=0.2); ax.legend()
+    fig.savefig(f"{save_prefix}flows.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+
+    # 4) Metallicity (standalone)
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if metal['lower'] is not None:
+        _plot_band(ax, ages, metal['median'], metal['lower'], metal['upper'], color='#8c564b', label='1σ posterior')
+    else:
+        ax.plot(ages, metal['median'], color='#8c564b', lw=2.5)
+    ax.set_xlabel('Universe Age (Gyr)'); ax.set_ylabel('[Fe/H]')
+    ax.set_xlim(0, ages[-1]); ax.grid(True, alpha=0.2)
+    fig.savefig(f"{save_prefix}metallicity.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+
+    # 5) Reservoir masses (standalone)
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if gas['lower'] is not None:
+        _plot_band(ax, ages, gas['median'], np.maximum(gas['lower'], 1e6), gas['upper'], color='#2ca02c', label='Gas 1σ')
+        _plot_band(ax, ages, stellar['median'], np.maximum(stellar['lower'], 1e6), stellar['upper'], color='#9467bd', label='Stellar 1σ')
+        ax.set_yscale('log')
+    else:
+        ax.semilogy(ages, gas['median'], color='#2ca02c', lw=2.5, label='Gas')
+        ax.semilogy(ages, stellar['median'], color='#9467bd', lw=2.5, label='Stellar')
+    total = np.asarray(gas['median']) + np.asarray(stellar['median'])
+    ax.semilogy(ages, total, color='black', lw=2, ls='--', label='Total')
+    ax.set_xlabel('Universe Age (Gyr)'); ax.set_ylabel(r'Mass ($M_\odot$)')
+    ax.set_xlim(0, ages[-1]); ax.grid(True, alpha=0.2); ax.legend()
+    fig.savefig(f"{save_prefix}masses.png", dpi=300, bbox_inches='tight'); plt.close(fig)
+
 

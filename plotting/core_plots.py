@@ -9,6 +9,11 @@ from scipy.stats import binned_statistic
 from scipy.ndimage import gaussian_filter1d
 from scipy.stats import gaussian_kde  # only used for your smoothing helper if needed
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.ndimage import gaussian_filter1d
+
+from plotting.best_model_selector import get_best_model_index
+
+from posterior_plotting_package.posterior_utils import compute_mdf_ensemble  # keep your actual import
 
 from plotting.style import *
 use_paper_style()
@@ -29,12 +34,6 @@ def _best_index_by_params(results_df, metric_col: str = 'fitness'):
         return int(results_df.index[0])
     series = pd.to_numeric(results_df[preferred], errors='coerce')
     return int(series.idxmin())
-
-
-def _best_param_tuple(results_df, metric_col: str = 'fitness'):
-    i = _best_index_by_params(results_df, metric_col=metric_col)
-    r = results_df.loc[i]
-    return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
 
 
 
@@ -68,7 +67,9 @@ def plot_age_feh_detailed(
     age_Joyce = np.asarray(age_Joyce, float)
     age_Bensby = np.asarray(age_Bensby, float)
 
-    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
+    # Select the single best model deterministically
+    best_idx, _ = get_best_model_index(GalGA, results_df, primary=metric_col)
+
 
     fig = plt.figure(figsize=(18, 11))
     gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[3, 1], wspace=0.0, hspace=0.0, left=0.07, right=0.97, top=0.96, bottom=0.08)
@@ -77,12 +78,13 @@ def plot_age_feh_detailed(
     ax_side = fig.add_subplot(gs[0, 1], sharey=ax_main)
 
     best_age_gyr, best_feh = None, None
+
+    # Plot background tracks
     alpha_all = 0.15
-    for (t, feh), res in zip(GalGA.age_data, GalGA.results):
-        params = (float(res[5]), float(res[7]), float(res[9]))
+    for i, (t, feh) in enumerate(GalGA.age_data):
         t = np.asarray(t, float); feh = np.asarray(feh, float)
         age_gyr = (t[-1] - t) / 1e9
-        if params == best_params:
+        if i == best_idx:
             best_age_gyr, best_feh = age_gyr.copy(), feh.copy()
             ax_main.plot(age_gyr, feh, 'r-', lw=2.5, zorder=5, label='Best model')
         else:
@@ -141,24 +143,26 @@ def plot_age_feh_detailed(
     ax_side.plot(obs_norm, obs_ctr, lw=2, color ='blue')
     ax_side.plot(obs_norm, obs_ctr, lw=1, color ='orange')
 
-    for (mx, my), res in zip(GalGA.mdf_data, GalGA.results):
-        params = (float(res[5]), float(res[7]), float(res[9]))
-        if params == best_params:
-            mx = np.asarray(mx, float); my = np.asarray(my, float)
-            counts, edges = np.histogram(mx, bins=feh_bins, weights=my)
-            counts = gaussian_filter1d(counts.astype(float), 1.2, mode='nearest')
-            counts = counts / counts.max() if counts.max() > 0 else counts
-            ctr = 0.5 * (edges[:-1] + edges[1:])
-            ax_side.fill_betweenx(ctr, 0, counts, color='red', alpha=0.20, label='Best model MDF')
-            ax_side.plot(counts, ctr, color='red', lw=2, ls='--')
-            break
+    # Side MDF: use the SAME best model index
+    mx, my = GalGA.mdf_data[best_idx]
+    mx = np.asarray(mx, float); my = np.asarray(my, float)
+    counts, edges = np.histogram(mx, bins=feh_bins, weights=my)
+    counts = gaussian_filter1d(counts.astype(float), 1.2, mode='nearest')
+    counts = counts / counts.max() if counts.max() > 0 else counts
+    ctr = 0.5 * (edges[:-1] + edges[1:])
+    ax_side.fill_betweenx(ctr, 0, counts, color='red', alpha=0.20, label='Best model MDF')
+    ax_side.plot(counts, ctr, color='red', lw=2, ls='--')
 
-    ax_main.set_xlim(0, age_limit_gyr); ax_main.set_ylim(-2.0, 1.0); ax_main.set_ylabel('[Fe/H]', fontsize=14)
+
+    #ax_main.set_xlim(0, age_limit_gyr)
+    ax_main.set_ylim(-2.0, 1.0)
+    ax_main.set_ylabel('[Fe/H]', fontsize=14)
     ax_main.tick_params(axis='x', labelbottom=False)
     ax_main.legend(loc='upper left', fontsize=10, frameon=True)
 
     ax_res.set_xlabel('Age (Gyr)', fontsize=14); ax_res.set_ylabel('Model − Obs [Fe/H]', fontsize=12)
-    ax_res.set_xlim(0, age_limit_gyr); ax_res.legend(loc='upper left', fontsize=10, frameon=True)
+    #ax_res.set_xlim(0, age_limit_gyr); 
+    ax_res.legend(loc='upper left', fontsize=10, frameon=True)
 
     ax_side.set_xlabel('Normalized counts', fontsize=12); ax_side.set_xlim(0, 1.15); ax_side.set_ylim(ax_main.get_ylim())
     ax_side.yaxis.set_label_position('right'); ax_side.yaxis.tick_right()
@@ -171,65 +175,81 @@ def plot_age_feh_detailed(
 
 
 
-
-
-
-
-def plot_mdf_curves(
-    GalGA,
-    feh,
-    normalized_count,
-    results_df=None,
-    save_path=None,
-    metric_col: str = 'fitness',
-):
-    import os, numpy as np, matplotlib.pyplot as plt
-    from scipy.interpolate import PchipInterpolator
+def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None, metric_col: str = 'fitness'):
 
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "MDF_multiple_results.png")
 
-    # pick true best and the matching curve
-    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
+    # pick true best (both GalGA index and row index)
+    best_idx, best_row_idx = get_best_model_index(GalGA, results_df, primary=metric_col)
 
     fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(9, 8),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
 
-    # background curves
+    # background curves (faint)
     n_all = len(GalGA.mdf_data)
     alpha = max(0.02, min(0.6, 8.0 / max(1, n_all)))
     for i, (x, y) in enumerate(GalGA.mdf_data):
-        if i == best_idx: continue
+        if i == best_idx:
+            continue
         ax_main.plot(x, y, color="0.75", alpha=0.15 * alpha, lw=0.8, zorder=1)
 
-    # evaluate best curve on the DATA grid and peak-normalize
-    bx, by = GalGA.mdf_data[best_idx]
-    bx = np.asarray(bx, float); by = np.clip(np.asarray(by, float), 0.0, None)
-    interp = PchipInterpolator(bx, by, extrapolate=False)
-    y_best = interp(np.asarray(feh, float))
-    y_best = np.where(np.isfinite(y_best), y_best, 0.0)
-    y_best /= (y_best.max() if y_best.max() > 0 else 1.0)
+    # --- BEST curve via the SAME pipeline as posterior, on 2× grid ---
+    x_data = np.asarray(feh, float)
+    y_data = np.asarray(normalized_count, float)
+    x_lo, x_hi = float(np.nanmin(x_data)), float(np.nanmax(x_data))
+    n_bins = x_data.size * 2  # keep double resolution
 
-    ax_main.plot(feh, y_best, color="crimson", lw=1.8, label="Model", zorder=3)
-    ax_main.plot(feh, normalized_count, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
+    if results_df is not None and not results_df.empty:
+        # must include sigma_2, t_2, infall_2 so compute_mdf_ensemble can map it
+        single_df = results_df.loc[[best_row_idx], ['sigma_2', 't_2', 'infall_2']].copy()
+    else:
+        r = GalGA.results[best_idx]
+        single_df = pd.DataFrame([{'sigma_2': float(r[5]), 't_2': float(r[7]), 'infall_2': float(r[9])}])
+
+    single_w = np.array([1.0], dtype=float)
+
+    best_ens = compute_mdf_ensemble(GalGA, single_df, single_w,
+                                    feh_range=(x_lo, x_hi),
+                                    n_bins=n_bins)
+
+    x_best = best_ens['x']
+    y_best = best_ens['median']
+
+    # peak-normalize to match posterior style
+    m = np.nanmax(y_best)
+    if m > 0:
+        y_best = y_best / m
+
+    # plot best curve on its native 2× grid  ✅
+    ax_main.plot(x_best, y_best, color="crimson", lw=1.8, label="Model", zorder=3)
+
+    # data
+    ax_main.plot(x_data, y_data, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
 
     ax_main.set_xlim(-2, 1)
     ax_main.set_ylabel("Normalized number")
     ax_main.legend(loc="upper left", fontsize=9, handlelength=1.6)
-    ax_main.xaxis.set_ticks_position("top"); ax_main.xaxis.set_label_position("top")
-    ax_main.set_xlabel("[Fe/H]"); ax_main.tick_params(axis="x", bottom=False)
+    ax_main.xaxis.set_ticks_position("top")
+    ax_main.xaxis.set_label_position("top")
+    ax_main.set_xlabel("[Fe/H]")
+    ax_main.tick_params(axis="x", bottom=False)
 
-    # residuals
-    res = y_best - np.asarray(normalized_count, float)
+    # residuals: evaluate best on DATA grid, then subtract  ✅
+    f_best_on_data = interp1d(x_best, y_best, kind="linear", bounds_error=False, fill_value=0.0)
+    y_model_on_data = f_best_on_data(x_data)
+    res = y_model_on_data - y_data
+
     ax_res.axhline(0.0, ls="--", lw=1.0, color="black", alpha=0.7)
-    ax_res.plot(feh, res, ".", ms=3.5)
-    s = np.nanstd(res); 
-    ax_res.set_ylim(-3*s, 3*s) if s > 0 else None
-    ax_res.set_xlabel("[Fe/H]"); ax_res.set_ylabel("Model − data")
+    ax_res.plot(x_data, res, ".", ms=3.5)
+    s = np.nanstd(res)
+    if s > 0:
+        ax_res.set_ylim(-3*s, 3*s)
+    ax_res.set_xlabel("[Fe/H]")
+    ax_res.set_ylabel("Model − data")
 
-    fig.savefig(save_path, bbox_inches="tight", dpi=300); plt.close(fig)
-
-
+    fig.savefig(save_path, bbox_inches="tight", dpi=300)
+    plt.close(fig)
 
 
 
@@ -257,7 +277,9 @@ def plot_four_panel_alpha(
     element_names = ['Mg', 'Si', 'Ca', 'Ti']
     observational_data = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
 
-    best_params, _ = _best_param_tuple(results_df, metric_col=metric_col)
+    best_idx, _ = get_best_model_index(GalGA, results_df, primary=metric_col)
+    r = GalGA.results[best_idx]
+    best_params = (float(r[5]), float(r[7]), float(r[9]))
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), sharex=False, sharey=False)
     fig.subplots_adjust(hspace=0.1, wspace=0.1, left=0.07, right=0.94, top=0.97, bottom=0.08)

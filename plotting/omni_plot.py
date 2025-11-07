@@ -16,9 +16,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
+from plotting.best_model_selector import get_best_model_index
+from scipy.ndimage import gaussian_filter1d
 
 from plotting.style import *
 use_paper_style()
+
+
+
+def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
+    mask = np.isfinite(x_data) & np.isfinite(y_data)
+    x = np.asarray(x_data)[mask]
+    y = np.asarray(y_data)[mask]
+    return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
+
 
 
 
@@ -636,22 +647,26 @@ def plot_omni_info_figure(
         print("No alpha data available for plotting")
         return None
 
-    # Determine best model parameters
+
+    # --- replacement for your "Determine best model parameters" block ---
     if results_df is not None and not results_df.empty:
-        best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
-        best_row = results_df.loc[best_idx]
+        best_idx, best_row_idx = get_best_model_index(GalGA, results_df, primary=metric_col)
+        best_row = results_df.loc[best_row_idx]
+        best_params = (float(best_row['sigma_2']),
+                       float(best_row['t_2']),
+                       float(best_row['infall_2']))
     else:
-        r = GalGA.results[0]
-        best_params = (r[5], r[7], r[9])
-        # Create a mock row for parameter display
+        best_idx = 0
+        r = GalGA.results[best_idx]
+        best_params = (float(r[5]), float(r[7]), float(r[9]))
         col_names = [
-            'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
-            'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
-            'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
-            'ks', 'ensemble', 'wrmse', 'mae', 'mape', 'huber',
-            'cosine', 'log_cosh', 'fitness'
+            'comp_idx','imf_idx','sn1a_idx','sy_idx','sn1ar_idx',
+            'sigma_2','t_1','t_2','infall_1','infall_2',
+            'sfe','delta_sfe','imf_upper','mgal','nb',
+            'ks','ensemble','wrmse','mae','mape','huber',
+            'cosine','log_cosh','fitness'
         ]
-        best_row = dict(zip(col_names, r))
+        best_row = pd.Series(dict(zip(col_names, r)))
 
 
 
@@ -836,6 +851,7 @@ def plot_omni_info_figure(
 
         # Plot best model
         if best_alpha_x is not None:
+            best_alpha_x, best_alpha_y = smooth_alpha_track_time_ordered(best_alpha_x, best_alpha_y, sigma=3)
             ax_alpha.plot(best_alpha_x, best_alpha_y, 'r-', linewidth=3,
                          label='Best Model', zorder=3)
 
@@ -888,14 +904,6 @@ def _best_index_by_params(results_df, metric_col: str = 'fitness'):
     return int(series.idxmin())
 
 
-def _best_param_tuple(results_df, metric_col: str = 'fitness'):
-    i = _best_index_by_params(results_df, metric_col=metric_col)
-    r = results_df.loc[i]
-    return (float(r['sigma_2']), float(r['t_2']), float(r['infall_2'])), i
-
-
-
-
 
 def plot_omni_figure(
     GalGA,
@@ -925,10 +933,17 @@ def plot_omni_figure(
 
 
 
+
+
+
     if save_path is None:
         save_path = os.path.join(getattr(GalGA, "output_path", ""), " Omni_Info_Figure_ApJ.png")
 
-    best_params, best_idx = _best_param_tuple(results_df, metric_col=metric_col)
+    best_idx, best_row_idx = get_best_model_index(GalGA, results_df, primary=metric_col)
+    best_row = results_df.loc[best_row_idx]
+    r = GalGA.results[best_idx]
+    best_params = (float(r[5]), float(r[7]), float(r[9]))
+
 
 
     # ------ Figure layout (tight, no wasted whitespace) ------
@@ -943,17 +958,17 @@ def plot_omni_figure(
     ax_mdf = fig.add_subplot(gs[0, 0:4])
     ax_amr = fig.add_subplot(gs[0, 4:8])
 
+
+
+
+
     # ------ MDF ------
     best_x = best_y = None
     for (x, y), res in zip(GalGA.mdf_data, GalGA.results):
-        is_best = all(abs(p - b) < 1e-5 for p, b in zip((res[5], res[7], res[9]), best_params))
-        if is_best:
-            best_x, best_y = np.asarray(x), np.asarray(y)
-        else:
-            ax_mdf.plot(x, y, color="0.75", alpha=0.001, lw=0.8, zorder=1)
+        ax_mdf.plot(x, y, color="0.75", alpha=0.001, lw=0.8, zorder=1)
 
-    if best_x is not None:
-        ax_mdf.plot(best_x, best_y, color="crimson", lw=1.8, label="Model", zorder=3)
+    best_mdf_x, best_mdf_y = GalGA.mdf_data[best_idx]
+    ax_mdf.plot(best_mdf_x, best_mdf_y, 'r-', linewidth=3, label='Best Model', zorder=3)
 
     ax_mdf.plot(feh_mdf, normalized_count_mdf, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
 
@@ -972,20 +987,19 @@ def plot_omni_figure(
     best_age_x = best_age_y = None
     for (t_arr, feh_arr), res in zip(GalGA.age_data, GalGA.results):
         is_best = all(abs(p - b) < 1e-5 for p, b in zip((res[5], res[7], res[9]), best_params))
-        if is_best:
-            t = np.asarray(t_arr, float)  # years
-            age = (t[-1] - t) / 1e9       # Age (Gyr), increasing to the right
-            best_age_x, best_age_y = age, np.asarray(feh_arr, float)
-        else:
-            t = np.asarray(t_arr, float)  # years
-            age = (t[-1] - t) / 1e9       # Age (Gyr), increasing to the right
-            age_x, age_y = age, np.asarray(feh_arr, float)
-            ax_amr.plot(age_x, age_y, color="0.75", alpha=0.001, lw=0.8, zorder=1)
+        t = np.asarray(t_arr, float)  # years
+        age = (t[-1] - t) / 1e9       # Age (Gyr), increasing to the right
+        age_x, age_y = age, np.asarray(feh_arr, float)
+        ax_amr.plot(age_x, age_y, color="0.75", alpha=0.001, lw=0.8, zorder=1)
+
+
+    # AMR
+    t_arr, feh_arr = GalGA.age_data[best_idx]
+    age_gyr = (t_arr[-1] - t_arr) / 1e9
+    ax_amr.plot(age_gyr, feh_arr, 'r-', linewidth=3, label='Best Model', zorder=3)
 
     ax_amr.scatter(age_Joyce, Fe_H, s=10, facecolor="none", edgecolor="0.35", lw=0.7, label="Joyce")
     ax_amr.scatter(age_Bensby, Fe_H, s=10, marker="^", facecolor="none", edgecolor="0.55", lw=0.7, label="Bensby")
-    if best_age_x is not None:
-        ax_amr.plot(best_age_x, best_age_y, color="crimson", lw=1.8, label="Model", zorder=3)
 
     ax_amr.set_xlim(0, 14)
     ax_amr.set_ylim(-2, 1)
@@ -1008,13 +1022,7 @@ def plot_omni_figure(
     alpha_obs   = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
     axes_alpha  = [fig.add_subplot(gs[1, 2*i:2*i+2]) for i in range(4)]
 
-    # Fetch best alpha arrays once
-    best_alpha = None
-    for alpha_arrs, res in zip(GalGA.alpha_data, GalGA.results):
-        is_best = all(abs(p - b) < 1e-5 for p, b in zip((res[5], res[7], res[9]), best_params))
-        if is_best:
-            best_alpha = alpha_arrs
-            break
+    best_alpha_arrs = GalGA.alpha_data[best_idx]
 
     xlim = (-2, 1)
     ylim = (-0.6, 0.8)
@@ -1024,12 +1032,14 @@ def plot_omni_figure(
         obs_clean = np.where((obs > -2.5) & (obs < 2.5), obs, np.nan)
         mask = np.isfinite(Fe_H) & np.isfinite(obs_clean)
         if np.count_nonzero(mask) > 5:
+
+
             ax.scatter(Fe_H[mask], obs_clean[mask], s=10, color="0.35", alpha=0.9, edgecolor="none", label="Data")
 
-        # Model
-        if best_alpha is not None and i < len(best_alpha):
-            mx, my = best_alpha[i]
-            ax.plot(mx, my, color="crimson", lw=1.6, label="Model")
+        mx, my = best_alpha_arrs[i]
+        mx, my = smooth_alpha_track_time_ordered(mx, my, sigma=3)
+        
+        ax.plot(mx, my, 'r-', linewidth=3, label='Best Model', zorder=3)
 
         # Limits, labels
         ax.set_xlim(*xlim)

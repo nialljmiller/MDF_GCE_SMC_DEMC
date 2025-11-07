@@ -439,19 +439,19 @@ def _plot_only(entry, bins=60):
     data = np.load(npz_path, allow_pickle=True)
 
     
-    walker_ids = data.get("walker_ids", None)
-    histories = data.get("histories", None)
+    walker_ids = data.get("walker_ids")
+    histories = data.get("histories")
     GalGA.walker_history = {int(wid): list(hist) for wid, hist in zip(walker_ids, histories)}
 
     
-    mdf_arr = data.get("mdf_data", None)
+    mdf_arr = data.get("mdf_data")
     GalGA.mdf_data = [ (np.asarray(x), np.asarray(y)) for (x, y) in mdf_arr ]
     for x, y in GalGA.mdf_data:
         if len(x) >= 4 and len(x) == len(y):
             GalGA.MDFs.append(CubicSpline(x, np.clip(y, 0, None)))
 
 
-    raw_alpha = data.get("alpha_data", None)
+    raw_alpha = data.get("alpha_data")
     clean_alpha = []
     for model_alpha in raw_alpha:
         elems = []
@@ -465,7 +465,7 @@ def _plot_only(entry, bins=60):
     GalGA.alpha_data = clean_alpha
 
 
-    age_arr = data.get("age_data", None)
+    age_arr = data.get("age_data")
     GalGA.age_data = [ (np.asarray(a[0]), np.asarray(a[1])) for a in age_arr ]
 
 

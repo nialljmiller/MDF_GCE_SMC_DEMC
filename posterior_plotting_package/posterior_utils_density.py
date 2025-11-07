@@ -12,6 +12,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 from scipy.stats import gaussian_kde
+import pandas as pd
+
+from typing import Optional
+
+# Expect mdf_plotting to have produced these columns already
+# and computed df["_hist_idx"] for each row.
+def map_row_to_history_index(row: pd.Series) -> int:
+    return int(row["_hist_idx"])
+
+def get_sample_weights(results_df: pd.DataFrame, weight_col: str = "posterior_w") -> np.ndarray:
+    w = np.asarray(results_df[weight_col], dtype=float)
+    s = w.sum()
+    return w / s
 
 
 def compute_density_at_percentiles(y_samples, weights, x_common, n_levels=20, percentiles=[16, 84]):
@@ -58,9 +71,6 @@ def compute_density_at_percentiles(y_samples, weights, x_common, n_levels=20, pe
     for i in range(n_points):
         y_at_point = y_samples[:, i]
         valid = np.isfinite(y_at_point)
-        
-        if np.sum(valid) == 0:
-            continue
         
         y_valid = y_at_point[valid]
         w_valid = weights[valid]

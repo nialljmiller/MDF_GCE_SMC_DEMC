@@ -736,3 +736,51 @@ def choose_cutoff_lognorm_mixture(in_weights, bins=100, kde_points=1024, em_max_
     
     return pct
 
+
+
+def sample_posterior_points(GalGA, top_df, weights, element_idx, n_points, feh_range=(-2,1)):
+    """
+    Draw ~n_points (Fe/H, alpha) from the posterior by:
+    1) sampling a track index by weights,
+    2) sampling a random point along that track within feh_range (uniform in Fe/H support).
+    """
+    rng = np.random.default_rng()
+    # pre-extract tracks once
+    tracks = []
+    for _, row in top_df.iterrows():
+        model_idx = find_model_by_params(GalGA, row)
+        if model_idx is None or model_idx >= len(GalGA.alpha_data): 
+            tracks.append(None); continue
+        feh, a = GalGA.alpha_data[model_idx][element_idx]
+        if feh is None or a is None: tracks.append(None); continue
+        x, y = smooth_alpha_track_time_ordered(np.asarray(feh, float), np.asarray(a, float), sigma=3)
+        m = np.isfinite(x) & np.isfinite(y) & (x >= feh_range[0]) & (x <= feh_range[1])
+        if m.sum() >= 5:
+            # monotonic-in-x subsampling to avoid weird backtracks
+            order = np.argsort(x[m])
+            tracks.append((x[m][order], y[m][order]))
+        else:
+            tracks.append(None)
+
+    # normalize weights over valid tracks only
+    valid = np.array([t is not None for t in tracks])
+    if valid.sum() == 0:
+        return np.empty((0,)), np.empty((0,))
+    w = np.array(weights, float)
+    w[~valid] = 0.0
+    w = w / (w.sum() + 1e-300)
+
+    # draw indices and then uniform points in each chosen track's Fe/H domain
+    idx = rng.choice(len(tracks), size=n_points, replace=True, p=w)
+    xs = np.empty(n_points); ys = np.empty(n_points)
+    for i, j in enumerate(idx):
+        x, y = tracks[j]
+        # pick a random Fe/H bin, then optionally jitter inside the bin via linear interp
+        k = rng.integers(0, len(x)-1)
+        x0, x1 = x[k], x[k+1]
+        t = rng.random()
+        xs[i] = (1-t)*x0 + t*x1
+        # local linear interpolation
+        y0, y1 = y[k], y[k+1]
+        ys[i] = (1-t)*y0 + t*y1
+    return xs, ys

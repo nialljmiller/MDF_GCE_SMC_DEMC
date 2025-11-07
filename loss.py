@@ -78,6 +78,9 @@ def calculate_all_metrics(GA_class, theory_count_array):
 
 
 
+
+
+
 import numpy as np
 
 EPS = 1e-12
@@ -100,6 +103,8 @@ def compute_EMD(GA_class, model_y):
     Fm = np.cumsum(Pm)
     W1 = np.trapz(np.abs(Fm - Fd), x)
     return float(W1 / (x[-1] - x[0]))  # ~[0,1]
+
+
 
 def compute_JS(GA_class, model_y):
     x    = np.asarray(GA_class.feh, dtype=float)

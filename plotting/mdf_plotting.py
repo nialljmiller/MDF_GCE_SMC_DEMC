@@ -25,8 +25,8 @@ from plotting.omni_plot import *              # omni info figure (if you use it)
 from plotting.core_plots import *
 from plotting.phys_plot import *
 
-from posterior_plotting_package.core_plots_posterior import post_plot_age_feh_detailed, post_plot_mdf_curves, post_plot_mdf_curves2, post_plot_four_panel_alpha, post_plot_corner
-from posterior_plotting_package.phys_plot_posterior import post_plot_real_infall_physics
+from posterior_plotting_package.core_plots_posterior import post_plot_age_feh_detailed, post_plot_mdf_curves, post_plot_four_panel_alpha, post_plot_corner
+from posterior_plotting_package.phys_plot_posterior import post_plot_real_infall_physics, post_plot_physics_panels_standalone
 
 from plotting.style import *
 use_paper_style()
@@ -113,6 +113,8 @@ def extract_metrics(results_file: str):
 
 
 
+
+
 def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     """Generate the MDF, AMR, alpha fits, and the posterior corner plot."""
 
@@ -178,37 +180,75 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
 
     metric_name = "fitness"
     df['confidence'] = df[metric_name].values * df['physics_penalty'].values
+    df[metric_name] = pd.to_numeric(df[metric_name], errors="coerce")
+    from posterior_plotting_package.posterior_utils import compute_weights
+    from plotting.best_model_selector import _soft_map_row_to_model_idx
+    weights, T, _ = compute_weights(df['fitness'].values)
+    df['posterior_w'] = weights
+
+    df["model_idx"] = [ _soft_map_row_to_model_idx(GalGA, r) for _, r in df.iterrows() ]
+
+
+
+
 
 
     # ----------------------------
-    # Core plots
+    # Corner plots
     # ----------------------------
-    print("Generating MDF fit plot...")
-    plot_mdf_curves(GalGA, feh, normalized_count, df, metric_col=metric_name)
-
-    print("Generating four-panel alpha comparison...")
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df, metric_col=metric_name)
-
-    print("Generating age-metallicity relation plots...")
-    plot_age_feh_detailed(
-        GalGA,
-        Fe_H,
-        age_Joyce,
-        age_Bensby,
-        results_df=df,
-        n_bins=10,
-        metric_col=metric_name,
-    )
-
-    #plot_age_metallicity_curves(GalGA, Fe_H, age_Joyce, age_Bensby, df)
-
-    #exit()
+    print("\n Generating posterior cornerplots...")
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = metric_name)
+    #post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
     plt.close('all')
+
+
+
+    # ----------------------------
+    # Fit plots
+    # ----------------------------
+
+    print("\n Generating posterior MDF fit plot...")
+    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=10)
+    plt.close('all')
+    print("\n Generating posterior four-panel alpha comparison...")
+    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=10)
+    plt.close('all')
+    print("\n Generating posterior age-metallicity relation plots...")
+    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=10)
+    plt.close('all')
+
+    print("\n Generating MDF fit plot...")
+    plot_mdf_curves(GalGA, feh, normalized_count, df, metric_col=metric_name)
+    plt.close('all')
+    print("\n Generating four-panel alpha comparison...")
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df, metric_col=metric_name)
+    plt.close('all')
+    print("\n Generating age-metallicity relation plots...")
+    plot_age_feh_detailed(GalGA,Fe_H,age_Joyce,age_Bensby,results_df=df,n_bins=10,metric_col=metric_name)
+    plt.close('all')
+
+
+
+    # ----------------------------
+    # Physics plots
+    # ----------------------------
+    print("\n Generating physics plots...")
+    post_plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=1)
+    plt.close('all')
+    #post_plot_physics_panels_standalone(GalGA, results_df=df, use_posterior=True, percentile=1, max_models=2)
+    plt.close('all')
+    generate_physics_plots(GalGA, results_file=results_file)
+    plt.close('all')
+
+
+
+
 
     # ----------------------------
     # Omni figures
     # ----------------------------
-    print("Generating dashboard figure...")
+    print("\n Generating dashboard figure...")
     plot_omni_info_figure(
         GalGA, Fe_H, age_Joyce, age_Bensby, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe,
         feh, normalized_count, df, metric_col=metric_name
@@ -219,31 +259,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     )
     plt.close('all')
 
-    print("Omni info figure generated!")
-
-
-
-    print("Generating posterior figures...")
-    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = metric_name)
-    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
-    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
-    plt.close('all')
-
-    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
-    post_plot_mdf_curves2(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
-
-    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=100)
-    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=100)
-    plt.close('all')
-
-    post_plot_real_infall_physics(GalGA, results_df=df, use_posterior=True, max_models=2, percentile=-1)
-    plt.close('all')
-
-
-
-
-    generate_physics_plots(GalGA, results_file=results_file)
-    plt.close('all')
+    print("\n Omni info figure generated!")
 
 
 
@@ -251,7 +267,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # ----------------------------
     # Binned loss / marginals / gradients
     # ----------------------------
-    print("Generating loss map figures...")
+    print("\n Generating loss map figures...")
     analysis_dir = os.path.join(GalGA.output_path, 'analysis')
     os.makedirs(analysis_dir, exist_ok=True)
 
@@ -425,12 +441,12 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # Walker evolution / loss history
     # ----------------------------
     try:
-        print("Generating walker evolution plots...")
+        print("\n Generating walker evolution plots...")
         param_names   = ["sigma_2", "t_2", "infall_2", "sfe", "delta_sfe"]
         param_indices = [5, 7, 9, 10, 11]
         plot_walker_history(GalGA, GalGA.walker_history, param_names, param_indices)
 
-        print("Generating walker loss history plots...")
+        print("\n Generating walker loss history plots...")
         for metric in ['ks', 'huber', 'cosine', 'log_cosh', 'fitness', 'age_meta_fitness', 'physics_penalty']:
             plot_walker_loss_history(GalGA, GalGA.walker_history, results_file, loss_metric=metric)
             plot_multiple_success_thresholds(GalGA, GalGA.walker_history,
@@ -438,7 +454,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
                                              thresholds=[0.01, 0.1, 0.001],
                                              loss_metric=metric)
     except:
-        print("Failed Generating walker evolution plots")
+        print("\n Failed Generating walker evolution plots")
 
 
 
@@ -466,7 +482,7 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     #print(f"Posterior analysis complete. Outputs written to {posterior_dir}")
     #print(f"Posterior draws: {summary.get('posterior_draws')} (ESS={ess_text})")
 
-    #print("All plotting complete! Generated MDF, AMR, alpha, and posterior diagnostics.")
+    #print("\n All plotting complete! Generated MDF, AMR, alpha, and posterior diagnostics.")
     #print(f"Loaded {len(Fe_H)} observational data points for individual alpha elements")
 
 
@@ -477,9 +493,9 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # Wrap-up
     # ----------------------------
     plt.close('all')  # (optional) belt-and-suspenders at the end of an iteration
-    print("All plotting complete! Check the output directory for results.")
-    print("Generated parameter space exploration plots:")
+    print("\n All plotting complete! Check the output directory for results.")
+    print("\n Generated parameter space exploration plots:")
     # print(f"- {len(metrics_dict)} metrics × 24 2D plots = {len(metrics_dict) * 24} 2D scatter plots")
     # print(f"- {len(metrics_dict)} metrics × 16 3D plots = {len(metrics_dict) * 16} 3D scatter plots")
-    print("- Plus walker evolution, loss history, PCA analysis, and correlation matrix plots")
+    print("\n - Plus walker evolution, loss history, PCA analysis, and correlation matrix plots")
     print(f"Loaded {len(Fe_H)} observational data points for individual alpha elements")
