@@ -249,6 +249,7 @@ class GalacticEvolutionGA:
         # Differential Evolution MCMC hybrid configuration
         self.demc_hybrid = bool(demc_hybrid)
         self.demc_fraction = float(np.clip(demc_fraction, 0.0, 1.0))
+        self.demc_fraction_backup = self.demc_fraction
         self.demc_moves_per_gen = max(1, int(demc_moves_per_gen))
         self.demc_gamma = demc_gamma
         self.demc_workers = None if demc_workers in (None, 0) else int(demc_workers)
@@ -765,11 +766,14 @@ class GalacticEvolutionGA:
         # keep tournament size small and constant (prevents lock-in to wrong basin)
         self.tournament_size = getattr(self, "tournament_size", 2)
 
+        self.demc_fraction = self.demc_fraction_backup
+
         # --- choose phase by generation index (no feedback from population) ---
         if generation < gA:
             # Phase A: exploration
             self.mutpb = mut_hi
             self.cxpb  = cx_lo
+            self.demc_fraction = 0
             vor_frac   = 0.4
         elif generation < gB:
             # Phase B: focus
@@ -1480,199 +1484,236 @@ class GalacticEvolutionGA:
 
 
     def evaluate(self, individual):
-
-
-
+        # ---- simple helpers (inline, no imports, no error handling) ----
         def _repair_preflight(ind):
+            # enforce t2 >= t1 + 0.5 Gyr
+            if ind[7] < ind[6] + 0.5:
+                ind[7] = ind[6] + 0.5
+            return ind
 
+        def _clamp(x, lo, hi):
+            if x < lo: return lo
+            if x > hi: return hi
+            return x
 
-            if ind[7] < ind[6] + 0.5:   # Gyr
-                ind[7] = ind[7] + 0.5
+        def _reflect(x, lo, hi):
+            # reflection without loops
+            r = hi - lo
+            if r <= 0: return lo
+            y = (x - lo) % (2*r)
+            if y <= r: return lo + y
+            return hi - (y - r)
+
+        def _cont_bounds(i):
+            return self.get_param_bounds(i)  # indices 5..14 in this GA
+
+        def _perturb_inplace(ind, k_attempt):
+            # scale grows with attempt (linear ramp)
+            base = 0.02  # 2% of range on first retry
+            scale = base * (1.0 + 0.75 * k_attempt)
+
+            # jitter continuous genes 5..14
+            for i in range(5, 15):
+                lo, hi   = _cont_bounds(i)
+                span     = (hi - lo)
+                step     = np.random.normal(0.0, scale * span)
+                ind[i]   = _reflect(ind[i] + step, lo, hi)
+
+            # keep the ordering t2 >= t1 + 0.5 after moves
+            if ind[7] < ind[6] + 0.5:
+                ind[7] = ind[6] + 0.5
+
+            # tiny chance to flip a categorical each retry to escape traps
+            # (indices 0..4 are categorical)
+            if np.random.rand() < min(0.30, 0.05 * (k_attempt + 1)):
+                i = np.random.choice([0,1,2,3,4])
+                name = self.index_to_param_map[i]
+                ncat = len(getattr(self, name))
+                ind[i] = np.random.randint(0, ncat)
 
             return ind
 
-        individual = _repair_preflight(list(individual))
+        # --------- start: take control of the actual, live individual ---------
+        individual = list(individual)            # make it writable
+        individual = _repair_preflight(individual)
 
+        # --------- unpack (always from the *live* individual) ---------
+        comp_idx  = int(np.clip(int(individual[0]), 0, len(self.comp_array)               - 1))
+        imf_idx   = int(np.clip(int(individual[1]), 0, len(self.imf_array)                - 1))
+        sn1a_idx  = int(np.clip(int(individual[2]), 0, len(self.sn1a_assumptions)         - 1))
+        sy_idx    = int(np.clip(int(individual[3]), 0, len(self.stellar_yield_assumptions)- 1))
+        sn1ar_idx = int(np.clip(int(individual[4]), 0, len(self.sn1a_rates)               - 1))
 
-        # Extract parameters from the individual
-        # Categorical parameters (indices)
-        comp_idx  = int(np.clip(int(individual[0]), 0, len(self.comp_array)   - 1))
-        imf_idx   = int(np.clip(int(individual[1]), 0, len(self.imf_array)    - 1))
-        sn1a_idx  = int(np.clip(int(individual[2]), 0, len(self.sn1a_assumptions)   - 1))
-        sy_idx    = int(np.clip(int(individual[3]), 0, len(self.stellar_yield_assumptions)     - 1))
-        sn1ar_idx = int(np.clip(int(individual[4]), 0, len(self.sn1a_rates)  - 1))
+        sigma_2       = float(individual[5])
+        t_1           = float(individual[6])
+        t_2           = float(individual[7])
+        infall_1      = float(individual[8])
+        infall_2      = float(individual[9])
+        sfe_val       = float(individual[10])
+        delta_sfe_val = float(individual[11])
+        imf_upper     = float(individual[12])
+        mgal          = float(individual[13])
+        nb            = float(individual[14])
 
+        comp   = self.comp_array[comp_idx]
+        imfval = self.imf_array[imf_idx]
+        sn1a   = self.sn1a_assumptions[sn1a_idx]
+        sy     = self.stellar_yield_assumptions[sy_idx]
+        sn1ar  = self.sn1a_rates[sn1ar_idx]
 
-        # Continuous parameters
-        sigma_2 = individual[5]
-        t_1 = individual[6]
-        t_2 = individual[7]
-        infall_1 = individual[8]
-        infall_2 = individual[9]
-        sfe_val = individual[10]
-        delta_sfe_val = individual[11]
-        imf_upper = individual[12]
-        mgal = individual[13]
-        nb = individual[14]
-        
-        # Look up the actual values for categorical parameters
-        comp = self.comp_array[comp_idx]
-        imf_val = self.imf_array[imf_idx]
-        sn1a = self.sn1a_assumptions[sn1a_idx]
-        sy = self.stellar_yield_assumptions[sy_idx]
-        sn1ar = self.sn1a_rates[sn1ar_idx]
-        
         A1 = self.A1
         A2 = self.A2
-        sn1a_header = self.sn1a_header
+        sn1a_header  = self.sn1a_header
         iniab_header = self.iniab_header
 
-
-        # --- deterministic, repair-first dt_in builder ---
-        N_total = self.timesteps
-        T_total = 13.0e9  # yr
-
-        t1 = t_1 * 1e9;   t2 = t_2 * 1e9
-        tau1 = max(infall_1 * 1e9, 1e4)  # avoid zeros
-        tau2 = max(infall_2 * 1e9, 1e4)
-
-        # windows: [t_i - 0.2 τ_i, t_i + 3 τ_i], clamped to domain
-        w1_lo, w1_hi = max(0.0, t1 - 0.2*tau1), min(T_total, t1 + 3.0*tau1)
-        w2_lo, w2_hi = max(0.0, t2 - 0.2*tau2), min(T_total, t2 + 3.0*tau2)
-
-        # merge if they overlap
-        if w1_hi > w2_lo:
-            w2_lo, w2_hi = min(w1_lo, w2_lo), max(w1_hi, w2_hi)
-            w1_lo, w1_hi = 0.0, 0.0  # first window empty
-
-        # segment caps
-        dt_min      = 2.0e6          # 2 Myr
-        cap_hi1     = min(0.1*tau1, 3.0e7)
-        cap_hi2     = min(0.1*tau2, 3.0e7)
-        cap_mid     = 1.5e8
-        cap_tail    = 2.5e8
-
-        # segments: [0,w1_lo],[w1_lo,w1_hi],[w1_hi,w2_lo],[w2_lo,w2_hi],[w2_hi,T_total]
-        segs = []
-        if w1_hi > w1_lo:
-            segs.append((0.0,    w1_lo, 'mid',  0.05))
-            segs.append((w1_lo,  w1_hi, 'hi1',  None))
-        else:
-            segs.append((0.0,    w2_lo, 'mid',  0.10))
-        segs.append((w1_hi, w2_lo, 'mid', 0.15))
-        if w2_hi > w2_lo:
-            segs.append((w2_lo,  w2_hi, 'hi2',  None))
-        segs.append((w2_hi, T_total,'tail',0.30))
-
-        # choose per-segment caps
-        def cap_for(kind):
-            return {'hi1':cap_hi1, 'hi2':cap_hi2, 'mid':cap_mid, 'tail':cap_tail}[kind]
-
-        # initial integer allocation that WILL sum to N_total
-        # rule: ≥30 steps in each hi window (if present); distribute the rest by duration
-        N = []
-        duration_total = sum(max(0.0, t1 - t0) for (t0,t1,_,_) in segs)
-        baseline = N_total
-
-        # reserve hi-window minima first
-        hi_min = 0
-        for (t0,t1,kind,_) in segs:
-            dur = max(0.0, t1 - t0)
-            if kind in ('hi1','hi2') and dur > 0:
-                N.append(30); hi_min += 30; baseline -= 30
+        # --------- deterministic dt_in builder (unchanged) ---------
+        def _build_dt(t_1, t_2, infall_1, infall_2):
+            N_total = self.timesteps
+            T_total = 13.0e9
+            t1 = t_1 * 1e9; t2 = t_2 * 1e9
+            tau1 = max(infall_1 * 1e9, 1e4)
+            tau2 = max(infall_2 * 1e9, 1e4)
+            w1_lo, w1_hi = max(0.0, t1 - 0.2*tau1), min(T_total, t1 + 3.0*tau1)
+            w2_lo, w2_hi = max(0.0, t2 - 0.2*tau2), min(T_total, t2 + 3.0*tau2)
+            if w1_hi > w2_lo:
+                w2_lo, w2_hi = min(w1_lo, w2_lo), max(w1_hi, w2_hi)
+                w1_lo, w1_hi = 0.0, 0.0
+            dt_min   = 2.0e6
+            cap_hi1  = min(0.1*tau1, 3.0e7)
+            cap_hi2  = min(0.1*tau2, 3.0e7)
+            cap_mid  = 1.5e8
+            cap_tail = 2.5e8
+            segs = []
+            if w1_hi > w1_lo:
+                segs.append((0.0,    w1_lo, 'mid'))
+                segs.append((w1_lo,  w1_hi, 'hi1'))
             else:
-                N.append(0)
+                segs.append((0.0,    w2_lo, 'mid'))
+            segs.append((w1_hi, w2_lo, 'mid'))
+            if w2_hi > w2_lo:
+                segs.append((w2_lo,  w2_hi, 'hi2'))
+            segs.append((w2_hi, T_total, 'tail'))
+            def cap_for(k):
+                if k == 'hi1': return cap_hi1
+                if k == 'hi2': return cap_hi2
+                if k == 'mid': return cap_mid
+                return cap_tail
+            N = []
+            durs = []
+            hi_min = 0
+            duration_total = 0.0
+            for t0,t1,kind in segs:
+                d = max(0.0, t1 - t0)
+                durs.append(d); duration_total += d
+                if kind in ('hi1','hi2') and d > 0:
+                    N.append(30); hi_min += 30
+                else:
+                    N.append(0)
+            baseline = self.timesteps - hi_min
+            if baseline < 0: baseline = 0
+            weights = [(d/duration_total if duration_total>0 else 0.0) for d in durs]
+            extra = [int(round(baseline*w)) for w in weights]
+            drift = (hi_min + sum(extra)) - self.timesteps
+            idxs = sorted(range(len(extra)), key=lambda i: durs[i], reverse=(drift>0))
+            for i in idxs:
+                if drift == 0: break
+                if drift > 0 and extra[i] > 0:
+                    extra[i] -= 1; drift -= 1
+                elif drift < 0:
+                    extra[i] += 1; drift += 1
+            for i in range(len(N)):
+                N[i] += extra[i]
+                if durs[i] > 0 and N[i] < 1: N[i] = 1
+            parts = []
+            for (t0,t1,kind), n in zip(segs, N):
+                d = max(0.0, t1 - t0)
+                if d == 0.0 or n == 0: continue
+                cap = cap_for(kind)
+                raw = np.full(n, max(dt_min, min(cap, d/max(1,n))), float)
+                raw *= d / raw.sum()
+                below = raw < dt_min
+                if below.any():
+                    deficit = dt_min*below.sum() - raw[below].sum()
+                    raw[below] = dt_min
+                    nz = (~below).sum()
+                    if nz > 0:
+                        raw[~below] -= deficit / nz
+                    raw = np.clip(raw, dt_min, None)
+                    raw *= d / raw.sum()
+                parts.append(raw)
+            dt = np.concatenate(parts)
+            if len(dt) > N_total:
+                extra = len(dt) - N_total
+                dt[-(extra+1)] += dt[-extra:].sum()
+                dt = dt[:N_total]
+            elif len(dt) < N_total:
+                pad = np.full(N_total-len(dt), dt[-1], float)
+                dt = np.concatenate([dt, pad])
+            dt *= (T_total / dt.sum())
+            if dt[-1] < dt_min and len(dt) > 1:
+                dt[-2] += dt[-1] - dt_min
+                dt[-1]  = dt_min
+            return dt
 
-        # distribute the remaining steps proportionally by duration (rounded)
-        if baseline < 0: baseline = 0
-        durs = [max(0.0, t1 - t0) for (t0,t1,_,_) in segs]
-        weights = [(d/duration_total if duration_total>0 else 0.0) for d in durs]
-        extra = [int(round(baseline*w)) for w in weights]
-        # fix rounding drift to hit exactly N_total
-        drift = (hi_min + sum(extra)) - N_total
-        # adjust extras by subtracting/adding 1 where it hurts least
-        idxs = sorted(range(len(extra)), key=lambda i: durs[i], reverse=(drift>0))
-        for i in idxs:
-            if drift == 0: break
-            if drift > 0 and extra[i] > 0:
-                extra[i] -= 1; drift -= 1
-            elif drift < 0:
-                extra[i] += 1; drift += 1
+        # --------- retry loop with increasing perturbations ---------
+        # mass window: 5e9 .. 3e10 (your condition)
+        max_retries = 0
+        attempt = 0
+        while True:
+            # build kwargs from the *current* individual values
+            custom_dt_in = _build_dt(individual[6], individual[7], individual[8], individual[9])
 
-        # final per-segment counts
-        for i in range(len(N)):
-            N[i] += extra[i]
-            # ensure at least 1 if segment has duration
-            if durs[i] > 0 and N[i] < 1: N[i] = 1
+            kwargs = {
+                'special_timesteps': len(custom_dt_in),
+                'dt_in': custom_dt_in,
+                'tend': float(custom_dt_in.sum()),
+                'twoinfall_sigmas': [1300, individual[5]],
+                'galradius': 1800,
+                'exp_infall': [[A1, individual[6]*1e9, individual[8]*1e9],
+                               [A2, individual[7]*1e9, individual[9]*1e9]],
+                'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
+                'tolerance': 1e-5,
+                'tauup': [0.1*individual[8]*1e9, 0.1*individual[9]*1e9],
+                'mgal': individual[13], 'iniZ': 0.0, 'mass_loading': 0.0,
+                'table': sn1a_header + sy,
+                'sfe': individual[10], 'delta_sfe': individual[11], 't_star': 1.0e9, 
+                'imf_type': imfval,
+                'sn1a_table': sn1a_header + sn1a,
+                'imf_yields_range': [1, individual[12]],
+                'iniabu_table': iniab_header + comp,
+                'nb_1a_per_m': individual[14], 'sn1a_rate': sn1ar
+            }
 
-        # now build dt for each segment with cap/floor, then renormalize each segment to its exact duration
-        parts = []
-        for (t0,t1,kind,_), n in zip(segs, N):
-            dur = max(0.0, t1 - t0)
-            if dur == 0.0 or n == 0:
-                continue
-            cap = cap_for(kind)
-            raw = np.full(n, max(dt_min, min(cap, dur/max(1,n))), float)
-            # sum(raw) may not equal dur; rescale uniformly to match exactly
-            scale = dur / raw.sum()
-            raw *= scale
-            # after rescale, enforce dt_min by borrowing uniformly from larger bins
-            below = raw < dt_min
-            if below.any():
-                deficit = dt_min*below.sum() - raw[below].sum()
-                raw[below] = dt_min
-                # take evenly from non-below bins
-                n_nonbelow = (~below).sum()
-                if n_nonbelow > 0:
-                    raw[~below] -= deficit / n_nonbelow
-                # if any went sub-min due to borrow, clip and renormalize again
-                raw = np.clip(raw, dt_min, None)
-                raw *= dur / raw.sum()
-            parts.append(raw)
+            GCE_model = omega_plus.omega_plus(**kwargs)
 
-        custom_dt_in = np.concatenate(parts)
+            m_gas_exp = np.zeros(GCE_model.inner.nb_timesteps+1)
+            m_locked  = np.zeros(GCE_model.inner.nb_timesteps+1)
+            for i_t in range(GCE_model.inner.nb_timesteps+1):
+                m_gas_exp[i_t] = sum(GCE_model.inner.ymgal[i_t])
+                m_locked[i_t]  = sum(GCE_model.inner.history.m_locked[0:i_t])
 
-        # final rounding repair to hit N_total exactly (rare off-by-one)
-        if len(custom_dt_in) > N_total:
-            # merge the last few tiny bins
-            extra = len(custom_dt_in) - N_total
-            custom_dt_in[-(extra+1)] += custom_dt_in[-extra:].sum()
-            custom_dt_in = custom_dt_in[:N_total]
-        elif len(custom_dt_in) < N_total:
-            pad = np.full(N_total-len(custom_dt_in), custom_dt_in[-1], float)
-            custom_dt_in = np.concatenate([custom_dt_in, pad])
+            tot_mass = m_locked[-1] + m_gas_exp[-1]
+            if (tot_mass < 3e10) and (tot_mass > 5e9):
+                break  # accept this run; individual already matches what ran
 
-        # final guarantee: exact sum & no micro last-bin
-        custom_dt_in *= (T_total / custom_dt_in.sum())
-        if custom_dt_in[-1] < dt_min and len(custom_dt_in) > 1:
-            custom_dt_in[-2] += custom_dt_in[-1] - dt_min
-            custom_dt_in[-1]  = dt_min
+            # not acceptable -> perturb the SAME individual in place, with bigger steps
+            attempt += 1
+            if attempt > max_retries:
+                break  # take whatever we have after last bump
+            _perturb_inplace(individual, attempt)
 
+            # refresh categorical lookups after potential flip
+            comp_idx  = int(np.clip(int(individual[0]), 0, len(self.comp_array)-1))
+            imf_idx   = int(np.clip(int(individual[1]), 0, len(self.imf_array)-1))
+            sn1a_idx  = int(np.clip(int(individual[2]), 0, len(self.sn1a_assumptions)-1))
+            sy_idx    = int(np.clip(int(individual[3]), 0, len(self.stellar_yield_assumptions)-1))
+            sn1ar_idx = int(np.clip(int(individual[4]), 0, len(self.sn1a_rates)-1))
+            comp   = self.comp_array[comp_idx]
+            imfval = self.imf_array[imf_idx]
+            sn1a   = self.sn1a_assumptions[sn1a_idx]
+            sy     = self.stellar_yield_assumptions[sy_idx]
+            sn1ar  = self.sn1a_rates[sn1ar_idx]
 
-        kwargs = {
-            'special_timesteps': len(custom_dt_in),
-            'dt_in': custom_dt_in,
-            'tend': float(custom_dt_in.sum()),
-            'twoinfall_sigmas': [1300, sigma_2],
-            'galradius': 1800,
-            'exp_infall': [[A1, t_1*1e9, infall_1*1e9],
-                           [A2, t_2*1e9, infall_2*1e9]],
-            'substeps': [2,4,8,12,16,24,32,48,64,96,128,192,256],
-            'tolerance': 1e-5,
-            'tauup': [0.1*infall_1*1e9, 0.1*infall_2*1e9],
-            'mgal': mgal, 'iniZ': 0.0, 'mass_loading': 0.0,
-            'table': sn1a_header + sy,
-            'sfe': sfe_val, 'delta_sfe': delta_sfe_val,
-            'imf_type': imf_val,
-            'sn1a_table': sn1a_header + sn1a,
-            'imf_yields_range': [1, imf_upper],
-            'iniabu_table': iniab_header + comp,
-            'nb_1a_per_m': nb, 'sn1a_rate': sn1ar
-        }
-
-
-        # Run GCE model and compute MDF
-        GCE_model = omega_plus.omega_plus(**kwargs)
 
         MDF_x_data, MDF_y_data = GCE_model.inner.plot_mdf(axis_mdf='[Fe/H]', sigma_gauss=0.1, norm=True, return_x_y=True)
 
@@ -1727,7 +1768,7 @@ class GalacticEvolutionGA:
         penalty_factor = apply_physics_penalty(primary_loss_value, MDF_x_data, MDF_y_data, alpha_arrs, age_x_data, age_y_data,GCE_model=GCE_model)
 
         # Return the result with a detailed label
-        label = (f'comp: {comp}, imf: {imf_val}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
+        label = (f'comp: {comp}, imf: {imfval}, sn1a: {sn1a}, sy: {sy}, sn1ar: {sn1ar}, '
                  f'sigma2: {sigma_2:.3f}, t1: {t_1:.3f}, t2: {t_2:.3f}, '
                  f'infall1: {infall_1:.3f}, infall2: {infall_2:.3f}, '
                  f'sfe: {sfe_val:.5f}, delta_sfe: {delta_sfe_val:.3f}, imf_upper: {imf_upper:.1f}, '
