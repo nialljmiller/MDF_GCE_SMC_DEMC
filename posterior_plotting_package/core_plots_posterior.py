@@ -65,12 +65,31 @@ def post_plot_mdf_curves(
         resampling="systematic",
     )
 
+    draw_df = ensure_model_indices(GalGA, draw_df)
+    if draw_df is None or draw_df.empty:
+        return None
+
+    draw_w = np.asarray(draw_w, dtype=float)
+    if draw_w.size != len(draw_df):
+        draw_w = draw_w[:len(draw_df)]
+
+    valid = np.isfinite(draw_df["model_idx"].to_numpy(dtype=float))
+    if not valid.any():
+        print("[warn] No posterior draws mapped to stored MDF tracks; skipping posterior MDF plot.")
+        return None
+
+    draw_df = draw_df.loc[valid].reset_index(drop=True)
+    draw_w = draw_w[valid]
+    s = draw_w.sum()
+    if s <= 0 or not np.isfinite(s):
+        draw_w = np.ones(len(draw_df), dtype=float) / len(draw_df)
+    else:
+        draw_w = draw_w / s
+
     # --- common x grid tied to data support ---
     n_bins = x_data.size * 2
     x_lo, x_hi = float(x_data.min()), float(x_data.max())
 
-
-    print(draw_w, draw_df, results_df)
     # compute posterior ensemble from actual draws (no parametric shape assumptions)
     ens = compute_mdf_ensemble(
         GalGA,
@@ -79,7 +98,10 @@ def post_plot_mdf_curves(
         feh_range=(x_lo, x_hi),
         n_bins=n_bins
     )
-    print(ens)
+
+    if ens is None:
+        print("[warn] Unable to build posterior MDF ensemble; skipping plot.")
+        return None
 
     x_common = ens["x"]
     y_med = ens["median"]
