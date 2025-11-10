@@ -132,6 +132,36 @@ def _get_results_param_frame(GalGA):
     return GalGA._results_param_frame
 
 
+def _get_results_param_lookup(GalGA, param_cols):
+    """Return a dict mapping normalized parameter tuples to result indices."""
+
+    if not hasattr(GalGA, '_results_param_lookup'):
+        GalGA._results_param_lookup = {}
+
+    key = tuple(param_cols)
+    if key in GalGA._results_param_lookup:
+        return GalGA._results_param_lookup[key]
+
+    results = getattr(GalGA, 'results', None) or []
+    lookup = {}
+    if results and key:
+        for idx, result in enumerate(results):
+            arr = np.asarray(result, dtype=float)
+            values = []
+            ok = True
+            for name in key:
+                pos = _RESULT_PARAM_INDICES.get(name)
+                if pos is None or pos >= arr.size:
+                    ok = False
+                    break
+                values.append(_normalize_param_value(name, arr[pos]))
+            if ok:
+                lookup[tuple(values)] = idx
+
+    GalGA._results_param_lookup[key] = lookup
+    return lookup
+
+
 def _extract_model_index(GalGA, row, param_cols=None, tol=1e-5):
     row = _row_to_series(row)
     index_cols = ('model_idx', '_hist_idx', 'history_idx')
@@ -219,42 +249,45 @@ def ensure_model_indices(GalGA, df, *, inplace=False, column="model_idx",
     param_cols = _MATCH_PARAM_COLS if param_cols is None else tuple(param_cols)
     missing_mask = out[column].isna()
     if missing_mask.any():
-        available_cols = [col for col in param_cols if col in out.columns]
-        results_frame = _get_results_param_frame(GalGA)
+        match_cols = tuple(col for col in param_cols if col in out.columns)
+        lookup = _get_results_param_lookup(GalGA, match_cols)
+        cache_lookup = {}
+        cache_fallback = {}
+        fills = []
+        rows = out.loc[missing_mask]
+        for _, row in rows.iterrows():
+            row = _row_to_series(row)
+            idx_val = None
 
-        if available_cols and not results_frame.empty:
-            merge_cols = [col for col in available_cols if col in results_frame.columns]
-            if merge_cols:
-                norm_df = pd.DataFrame(index=out.index[missing_mask])
-                norm_df['_orig_index'] = norm_df.index
-                for col in merge_cols:
-                    norm_df[col] = _normalize_param_series(col, out.loc[missing_mask, col])
+            if match_cols:
+                try:
+                    key = tuple(_normalize_param_value(col, row[col]) for col in match_cols)
+                except KeyError:
+                    key = None
+                except TypeError:
+                    key = None
+                if key is not None and not any(pd.isna(v) for v in key):
+                    if key in cache_lookup:
+                        idx_val = cache_lookup[key]
+                    else:
+                        idx_val = lookup.get(key)
+                        cache_lookup[key] = None if idx_val is None else int(idx_val)
 
-                norm_df.reset_index(drop=True, inplace=True)
-
-                result_subset = results_frame[merge_cols + ['model_idx']]
-                merged = norm_df.merge(result_subset, how='left', on=merge_cols)
-                merged.set_index('_orig_index', inplace=True)
-                merged = merged.reindex(out.index[missing_mask])
-                out.loc[missing_mask, column] = out.loc[missing_mask, column].fillna(merged['model_idx'])
-
-        missing_mask = out[column].isna()
-        if missing_mask.any():
-            cache = {}
-            fill_values = []
-            for _, row in out.loc[missing_mask].iterrows():
-                key = tuple(
+            if idx_val is None:
+                fallback_key = tuple(
                     (col, _normalize_param_value(col, row[col]))
                     for col in param_cols
                     if col in row.index and pd.notna(row[col])
                 )
-                if key in cache:
-                    idx = cache[key]
+                if fallback_key in cache_fallback:
+                    idx_val = cache_fallback[fallback_key]
                 else:
-                    idx = _extract_model_index(GalGA, row, param_cols=param_cols)
-                    cache[key] = None if idx is None else int(idx)
-                fill_values.append(np.nan if idx is None else int(idx))
-            out.loc[missing_mask, column] = fill_values
+                    idx_val = _extract_model_index(GalGA, row, param_cols=param_cols)
+                    cache_fallback[fallback_key] = None if idx_val is None else int(idx_val)
+
+            fills.append(np.nan if idx_val is None else int(idx_val))
+
+        out.loc[missing_mask, column] = fills
 
     if drop_missing:
         mask = pd.notna(out[column])
