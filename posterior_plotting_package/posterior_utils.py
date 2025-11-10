@@ -50,6 +50,13 @@ def _normalize_param_value(name: str, value: float, ndigits: int = 12):
     return float(np.round(float(value), ndigits))
 
 
+def _normalize_param_series(name: str, series: pd.Series, ndigits: int = 12):
+    series = pd.to_numeric(series, errors='coerce')
+    if name in _DISCRETE_PARAM_COLS:
+        return series.round().astype('Int64')
+    return series.round(ndigits)
+
+
 def _row_to_series(row):
     """Return a pandas Series view of *row* regardless of its original type."""
     if isinstance(row, pd.Series):
@@ -101,6 +108,28 @@ def _get_walker_model_lookup(GalGA):
 
     GalGA._walker_model_lookup = lookup
     return lookup
+
+
+def _get_results_param_frame(GalGA):
+    cache = getattr(GalGA, '_results_param_frame', None)
+    if cache is not None:
+        return cache
+
+    results = getattr(GalGA, 'results', None) or []
+    if len(results) == 0:
+        GalGA._results_param_frame = pd.DataFrame()
+        return GalGA._results_param_frame
+
+    array = np.asarray(results, dtype=float)
+    data = {'model_idx': np.arange(array.shape[0], dtype=int)}
+    for name in _MATCH_PARAM_COLS:
+        idx = _RESULT_PARAM_INDICES.get(name)
+        if idx is None or idx >= array.shape[1]:
+            continue
+        data[name] = _normalize_param_series(name, pd.Series(array[:, idx]))
+
+    GalGA._results_param_frame = pd.DataFrame(data)
+    return GalGA._results_param_frame
 
 
 def _extract_model_index(GalGA, row, param_cols=None, tol=1e-5):
@@ -165,14 +194,67 @@ def ensure_model_indices(GalGA, df, *, inplace=False, column="model_idx",
         return df if inplace else df.copy()
 
     out = df if inplace else df.copy()
+    target = pd.to_numeric(out.get(column), errors='coerce') if column in out.columns else pd.Series(dtype=float)
+    if target.empty:
+        target = pd.Series(np.nan, index=out.index, dtype=float)
+    else:
+        target = target.reindex(out.index, fill_value=np.nan)
+
+    index_cols = ('model_idx', '_hist_idx', 'history_idx')
+    for idx_col in index_cols:
+        if idx_col in out.columns and idx_col != column:
+            candidate = pd.to_numeric(out[idx_col], errors='coerce')
+            target = target.fillna(candidate)
+
+    if 'walker_id' in out.columns:
+        walker_map = _get_walker_model_lookup(GalGA)
+        if walker_map:
+            walker_ids = pd.to_numeric(out['walker_id'], errors='coerce').round().astype('Int64')
+            mapped = walker_ids.map(walker_map)
+            if not mapped.empty:
+                target = target.fillna(mapped.astype(float))
+
+    out[column] = target
+
     param_cols = _MATCH_PARAM_COLS if param_cols is None else tuple(param_cols)
+    missing_mask = out[column].isna()
+    if missing_mask.any():
+        available_cols = [col for col in param_cols if col in out.columns]
+        results_frame = _get_results_param_frame(GalGA)
 
-    indices = []
-    for _, row in out.iterrows():
-        idx = _extract_model_index(GalGA, row, param_cols=param_cols)
-        indices.append(np.nan if idx is None else int(idx))
+        if available_cols and not results_frame.empty:
+            merge_cols = [col for col in available_cols if col in results_frame.columns]
+            if merge_cols:
+                norm_df = pd.DataFrame(index=out.index[missing_mask])
+                norm_df['_orig_index'] = norm_df.index
+                for col in merge_cols:
+                    norm_df[col] = _normalize_param_series(col, out.loc[missing_mask, col])
 
-    out[column] = indices
+                norm_df.reset_index(drop=True, inplace=True)
+
+                result_subset = results_frame[merge_cols + ['model_idx']]
+                merged = norm_df.merge(result_subset, how='left', on=merge_cols)
+                merged.set_index('_orig_index', inplace=True)
+                merged = merged.reindex(out.index[missing_mask])
+                out.loc[missing_mask, column] = out.loc[missing_mask, column].fillna(merged['model_idx'])
+
+        missing_mask = out[column].isna()
+        if missing_mask.any():
+            cache = {}
+            fill_values = []
+            for _, row in out.loc[missing_mask].iterrows():
+                key = tuple(
+                    (col, _normalize_param_value(col, row[col]))
+                    for col in param_cols
+                    if col in row.index and pd.notna(row[col])
+                )
+                if key in cache:
+                    idx = cache[key]
+                else:
+                    idx = _extract_model_index(GalGA, row, param_cols=param_cols)
+                    cache[key] = None if idx is None else int(idx)
+                fill_values.append(np.nan if idx is None else int(idx))
+            out.loc[missing_mask, column] = fill_values
 
     if drop_missing:
         mask = pd.notna(out[column])
