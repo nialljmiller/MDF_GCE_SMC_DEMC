@@ -15,6 +15,115 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
 
 
+# Parameter bookkeeping -----------------------------------------------------
+
+_RESULT_PARAM_INDICES = {
+    'comp_idx': 0,
+    'imf_idx': 1,
+    'sn1a_idx': 2,
+    'sy_idx': 3,
+    'sn1ar_idx': 4,
+    'sigma_2': 5,
+    't_1': 6,
+    't_2': 7,
+    'infall_1': 8,
+    'infall_2': 9,
+    'sfe': 10,
+    'delta_sfe': 11,
+    'imf_upper': 12,
+    'mgal': 13,
+    'nb': 14,
+}
+
+_DISCRETE_PARAM_COLS = {'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx'}
+
+_MATCH_PARAM_COLS = [
+    'comp_idx', 'imf_idx', 'sn1a_idx', 'sy_idx', 'sn1ar_idx',
+    'sigma_2', 't_1', 't_2', 'infall_1', 'infall_2',
+    'sfe', 'delta_sfe', 'imf_upper', 'mgal', 'nb',
+]
+
+
+def _normalize_param_value(name: str, value: float, ndigits: int = 12):
+    if name in _DISCRETE_PARAM_COLS:
+        return int(round(float(value)))
+    return float(np.round(float(value), ndigits))
+
+
+def _row_to_series(row):
+    """Return a pandas Series view of *row* regardless of its original type."""
+    if isinstance(row, pd.Series):
+        return row
+    if hasattr(row, '_asdict'):  # namedtuple from itertuples
+        return pd.Series(row._asdict())
+    if isinstance(row, dict):
+        return pd.Series(row)
+    return pd.Series(row)
+
+
+def _get_walker_model_lookup(GalGA):
+    lookup = getattr(GalGA, '_walker_model_lookup', None)
+    if lookup is not None:
+        return lookup
+
+    lookup = {}
+    walker_history = getattr(GalGA, 'walker_history', {}) or {}
+    results = getattr(GalGA, 'results', []) or []
+    if not walker_history or len(results) == 0:
+        GalGA._walker_model_lookup = lookup
+        return lookup
+
+    genome_to_walker = {}
+    for wid, history in walker_history.items():
+        if not history:
+            continue
+        genome = np.asarray(history[-1], dtype=float)
+        if genome.size < len(_MATCH_PARAM_COLS):
+            continue
+        key = tuple(
+            _normalize_param_value(name, genome[i])
+            for i, name in enumerate(_MATCH_PARAM_COLS)
+            if i < genome.size
+        )
+        genome_to_walker[key] = int(wid)
+
+    for idx, result in enumerate(results):
+        result = np.asarray(result, dtype=float)
+        if result.size < len(_MATCH_PARAM_COLS):
+            continue
+        key = tuple(
+            _normalize_param_value(name, result[_RESULT_PARAM_INDICES[name]])
+            for name in _MATCH_PARAM_COLS
+        )
+        wid = genome_to_walker.get(key)
+        if wid is not None and wid not in lookup:
+            lookup[wid] = idx
+
+    GalGA._walker_model_lookup = lookup
+    return lookup
+
+
+def _extract_model_index(GalGA, row, param_cols=None, tol=1e-5):
+    row = _row_to_series(row)
+    index_cols = ('model_idx', '_hist_idx', 'history_idx')
+    for col in index_cols:
+        if col in row.index:
+            val = row[col]
+            if pd.notna(val):
+                idx = int(round(float(val)))
+                if idx >= 0:
+                    return idx
+
+    if 'walker_id' in row.index and pd.notna(row['walker_id']):
+        wid = int(round(float(row['walker_id'])))
+        lookup = _get_walker_model_lookup(GalGA)
+        idx = lookup.get(wid)
+        if idx is not None:
+            return idx
+
+    return find_model_by_params(GalGA, row, param_cols=param_cols, tol=tol)
+
+
 def get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile=10):
     """
     Extract top percentile of models with inverse-fitness weights.
@@ -55,41 +164,50 @@ def get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile
 
 
 
-def find_model_by_params(GalGA, params_row, param_cols=['sigma_2', 't_2', 'infall_2'], tol=1e-5):
-    """
-    Find model index in GalGA.results that matches parameter row.
-    
-    Parameters
-    ----------
-    GalGA : object
-        GalGA object with results attribute
-    params_row : pd.Series or dict
-        Row from results_df with parameter values
-    param_cols : list
-        Parameter columns to match (default: sigma_2, t_2, infall_2)
-    tol : float
-        Tolerance for floating-point comparison
-    
-    Returns
-    -------
-    idx : int or None
-        Index in GalGA.results that matches, or None if not found
-    """
+def find_model_by_params(GalGA, params_row, param_cols=None, tol=1e-5):
+    """Best-effort mapping of a catalogue row to ``GalGA.results`` index."""
     if not hasattr(GalGA, 'results') or len(GalGA.results) == 0:
         return None
-    
-    # Parameter indices in GalGA.results array
-    # Based on code analysis: [comp_idx, imf_idx, sn1a_idx, sy_idx, sn1ar_idx,
-    #                           sigma_2, t_1, t_2, infall_1, infall_2, ...]
-    param_indices = {'sigma_2': 5, 't_2': 7, 'infall_2': 9}
-    
-    target_vals = [float(params_row[col]) for col in param_cols]
-    
+
+    params_row = _row_to_series(params_row)
+    if param_cols is None:
+        param_cols = _MATCH_PARAM_COLS
+
+    usable_cols = []
+    targets = []
+    for col in param_cols:
+        if col not in _RESULT_PARAM_INDICES:
+            continue
+        if col not in params_row.index:
+            continue
+        val = params_row[col]
+        if pd.isna(val):
+            continue
+        usable_cols.append(col)
+        targets.append(_normalize_param_value(col, val))
+
+    if not usable_cols:
+        return None
+
     for idx, result in enumerate(GalGA.results):
-        result_vals = [float(result[param_indices[col]]) for col in param_cols]
-        if all(abs(t - r) < tol for t, r in zip(target_vals, result_vals)):
+        result = np.asarray(result)
+        ok = True
+        for col, target in zip(usable_cols, targets):
+            res_val = result[_RESULT_PARAM_INDICES[col]]
+            if col in _DISCRETE_PARAM_COLS:
+                if int(round(float(res_val))) != int(target):
+                    ok = False
+                    break
+            else:
+                if not np.isfinite(res_val):
+                    ok = False
+                    break
+                if not np.isclose(float(res_val), float(target), rtol=tol, atol=tol):
+                    ok = False
+                    break
+        if ok:
             return idx
-    
+
     return None
 
 
@@ -268,29 +386,49 @@ def compute_mdf_ensemble(GalGA, top_df, weights, feh_range=(-2.0, 1.0), n_bins=1
     # Define common [Fe/H] grid
     feh_common = np.linspace(feh_range[0], feh_range[1], n_bins)
     
-    # Collect MDF samples
+    top_df = top_df.reset_index(drop=True)
+    weights = np.asarray(weights, dtype=float)
+    n = min(len(top_df), len(weights))
+    if n == 0:
+        return None
+
     mdf_x_arrays = []
     mdf_y_arrays = []
-    
-    for idx, row in top_df.iterrows():
-        model_idx = find_model_by_params(GalGA, row)
-        if model_idx is None:
+    matched_weights = []
+
+    for i in range(n):
+        row = top_df.loc[i]
+        model_idx = _extract_model_index(GalGA, row, param_cols=_MATCH_PARAM_COLS)
+        if model_idx is None or model_idx < 0:
             continue
-        
-        if model_idx < len(GalGA.mdf_data):
-            mdf_x, mdf_y = GalGA.mdf_data[model_idx]
-            mdf_x_arrays.append(np.asarray(mdf_x, dtype=float))
-            mdf_y_arrays.append(np.asarray(mdf_y, dtype=float))
-    
+        if model_idx >= len(getattr(GalGA, 'mdf_data', [])):
+            continue
+
+        mdf_x, mdf_y = GalGA.mdf_data[model_idx]
+        mdf_x = np.asarray(mdf_x, dtype=float)
+        mdf_y = np.asarray(mdf_y, dtype=float)
+        if mdf_x.size == 0 or mdf_y.size == 0:
+            continue
+        mdf_x_arrays.append(mdf_x)
+        mdf_y_arrays.append(mdf_y)
+        matched_weights.append(float(weights[i]))
+
     if len(mdf_x_arrays) == 0:
         return None
-    
+
+    matched_weights = np.asarray(matched_weights, dtype=float)
+    s = matched_weights.sum()
+    if not np.isfinite(s) or s <= 0:
+        matched_weights = np.ones(len(mdf_x_arrays), dtype=float) / len(mdf_x_arrays)
+    else:
+        matched_weights /= s
+
     # Interpolate to common grid
-    mdf_samples = interpolate_to_common_grid(mdf_x_arrays, mdf_y_arrays, 
+    mdf_samples = interpolate_to_common_grid(mdf_x_arrays, mdf_y_arrays,
                                              feh_common, method='linear')
-    
+
     # Compute percentile bands
-    bands = compute_percentile_bands(mdf_samples, weights[:len(mdf_samples)])
+    bands = compute_percentile_bands(mdf_samples, matched_weights)
     
     ensemble = {
         'x': feh_common,
@@ -329,36 +467,52 @@ def compute_age_feh_ensemble(GalGA, top_df, weights, age_range=(0, 14.0), n_bins
     
     # Define common age grid
     age_common = np.linspace(age_range[0], age_range[1], n_bins)
-    
-    # Collect age-[Fe/H] samples
+
+    top_df = top_df.reset_index(drop=True)
+    weights = np.asarray(weights, dtype=float)
+    n = min(len(top_df), len(weights))
+    if n == 0:
+        return None
+
     age_arrays = []
     feh_arrays = []
-    
-    for idx, row in top_df.iterrows():
-        model_idx = find_model_by_params(GalGA, row)
-        if model_idx is None:
+    matched_weights = []
+
+    for i in range(n):
+        row = top_df.loc[i]
+        model_idx = _extract_model_index(GalGA, row, param_cols=_MATCH_PARAM_COLS)
+        if model_idx is None or model_idx < 0:
             continue
-        
-        if model_idx < len(GalGA.age_data):
-            time_array, feh_array = GalGA.age_data[model_idx]
-            time_array = np.asarray(time_array, dtype=float)
-            feh_array = np.asarray(feh_array, dtype=float)
-            
-            # Convert time to age (t_final - t) / 1e9
-            age_gyr = (time_array[-1] - time_array) / 1e9
-            
-            age_arrays.append(age_gyr)
-            feh_arrays.append(feh_array)
-    
+        if model_idx >= len(getattr(GalGA, 'age_data', [])):
+            continue
+
+        time_array, feh_array = GalGA.age_data[model_idx]
+        time_array = np.asarray(time_array, dtype=float)
+        feh_array = np.asarray(feh_array, dtype=float)
+        if time_array.size == 0 or feh_array.size == 0:
+            continue
+
+        age_gyr = (time_array[-1] - time_array) / 1e9
+        age_arrays.append(age_gyr)
+        feh_arrays.append(feh_array)
+        matched_weights.append(float(weights[i]))
+
     if len(age_arrays) == 0:
         return None
-    
+
+    matched_weights = np.asarray(matched_weights, dtype=float)
+    s = matched_weights.sum()
+    if not np.isfinite(s) or s <= 0:
+        matched_weights = np.ones(len(age_arrays), dtype=float) / len(age_arrays)
+    else:
+        matched_weights /= s
+
     # Interpolate to common grid
-    feh_samples = interpolate_to_common_grid(age_arrays, feh_arrays, 
+    feh_samples = interpolate_to_common_grid(age_arrays, feh_arrays,
                                              age_common, method='linear')
-    
+
     # Compute percentile bands
-    bands = compute_percentile_bands(feh_samples, weights[:len(feh_samples)])
+    bands = compute_percentile_bands(feh_samples, matched_weights)
     
     ensemble = {
         'x': age_common,
@@ -403,37 +557,57 @@ def compute_alpha_ensemble(GalGA, top_df, weights, element_idx,
     # Define common [Fe/H] grid
     feh_common = np.linspace(feh_range[0], feh_range[1], n_bins)
     
-    # Collect alpha element samples
+    top_df = top_df.reset_index(drop=True)
+    weights = np.asarray(weights, dtype=float)
+    n = min(len(top_df), len(weights))
+    if n == 0:
+        return None
+
     feh_arrays = []
     alpha_arrays = []
-    
-    for idx, row in top_df.iterrows():
-        model_idx = find_model_by_params(GalGA, row)
-        if model_idx is None:
+    matched_weights = []
+
+    for i in range(n):
+        row = top_df.loc[i]
+        model_idx = _extract_model_index(GalGA, row, param_cols=_MATCH_PARAM_COLS)
+        if model_idx is None or model_idx < 0:
             continue
-        
-        if model_idx < len(GalGA.alpha_data):
-            alpha_arrs = GalGA.alpha_data[model_idx]
-            
-            if element_idx < len(alpha_arrs):
-                feh_model, alpha_model = alpha_arrs[element_idx]
-                
-                # Apply smoothing (as in original code)
-                feh_smooth, alpha_smooth = smooth_alpha_track_time_ordered(
-                    feh_model, alpha_model, sigma=smooth_sigma)
-                
-                feh_arrays.append(feh_smooth)
-                alpha_arrays.append(alpha_smooth)
-    
+        if model_idx >= len(getattr(GalGA, 'alpha_data', [])):
+            continue
+
+        alpha_arrs = GalGA.alpha_data[model_idx]
+        if element_idx >= len(alpha_arrs):
+            continue
+
+        feh_model, alpha_model = alpha_arrs[element_idx]
+        feh_model = np.asarray(feh_model, dtype=float)
+        alpha_model = np.asarray(alpha_model, dtype=float)
+        if feh_model.size == 0 or alpha_model.size == 0:
+            continue
+
+        feh_smooth, alpha_smooth = smooth_alpha_track_time_ordered(
+            feh_model, alpha_model, sigma=smooth_sigma)
+
+        feh_arrays.append(feh_smooth)
+        alpha_arrays.append(alpha_smooth)
+        matched_weights.append(float(weights[i]))
+
     if len(feh_arrays) == 0:
         return None
-    
+
+    matched_weights = np.asarray(matched_weights, dtype=float)
+    s = matched_weights.sum()
+    if not np.isfinite(s) or s <= 0:
+        matched_weights = np.ones(len(feh_arrays), dtype=float) / len(feh_arrays)
+    else:
+        matched_weights /= s
+
     # Interpolate to common grid
-    alpha_samples = interpolate_to_common_grid(feh_arrays, alpha_arrays, 
+    alpha_samples = interpolate_to_common_grid(feh_arrays, alpha_arrays,
                                                feh_common, method='linear')
-    
+
     # Compute percentile bands
-    bands = compute_percentile_bands(alpha_samples, weights[:len(alpha_samples)])
+    bands = compute_percentile_bands(alpha_samples, matched_weights)
     
     ensemble = {
         'x': feh_common,
@@ -745,30 +919,52 @@ def sample_posterior_points(GalGA, top_df, weights, element_idx, n_points, feh_r
     2) sampling a random point along that track within feh_range (uniform in Fe/H support).
     """
     rng = np.random.default_rng()
-    # pre-extract tracks once
+    top_df = top_df.reset_index(drop=True)
+    weights = np.asarray(weights, dtype=float)
+    n = min(len(top_df), len(weights))
+    if n == 0:
+        return np.empty((0,)), np.empty((0,))
+
     tracks = []
-    for _, row in top_df.iterrows():
-        model_idx = find_model_by_params(GalGA, row)
-        if model_idx is None or model_idx >= len(GalGA.alpha_data): 
-            tracks.append(None); continue
-        feh, a = GalGA.alpha_data[model_idx][element_idx]
-        if feh is None or a is None: tracks.append(None); continue
+    for i in range(n):
+        row = top_df.loc[i]
+        model_idx = _extract_model_index(GalGA, row, param_cols=_MATCH_PARAM_COLS)
+        if model_idx is None or model_idx < 0:
+            tracks.append(None)
+            continue
+        if model_idx >= len(getattr(GalGA, 'alpha_data', [])):
+            tracks.append(None)
+            continue
+        alpha_arrs = GalGA.alpha_data[model_idx]
+        if element_idx >= len(alpha_arrs):
+            tracks.append(None)
+            continue
+        feh, a = alpha_arrs[element_idx]
+        if feh is None or a is None:
+            tracks.append(None)
+            continue
         x, y = smooth_alpha_track_time_ordered(np.asarray(feh, float), np.asarray(a, float), sigma=3)
         m = np.isfinite(x) & np.isfinite(y) & (x >= feh_range[0]) & (x <= feh_range[1])
         if m.sum() >= 5:
-            # monotonic-in-x subsampling to avoid weird backtracks
             order = np.argsort(x[m])
             tracks.append((x[m][order], y[m][order]))
         else:
             tracks.append(None)
 
-    # normalize weights over valid tracks only
     valid = np.array([t is not None for t in tracks])
     if valid.sum() == 0:
         return np.empty((0,)), np.empty((0,))
-    w = np.array(weights, float)
+
+    w = np.array(weights[:n], float)
+    if w.size < len(tracks):
+        w = np.pad(w, (0, len(tracks) - w.size), constant_values=0.0)
     w[~valid] = 0.0
-    w = w / (w.sum() + 1e-300)
+    total = w.sum()
+    if not np.isfinite(total) or total <= 0:
+        w = np.ones(len(tracks), dtype=float) / valid.sum()
+        w[~valid] = 0.0
+        total = w.sum()
+    w /= total
 
     # draw indices and then uniform points in each chosen track's Fe/H domain
     idx = rng.choice(len(tracks), size=n_points, replace=True, p=w)
