@@ -124,6 +124,65 @@ def _extract_model_index(GalGA, row, param_cols=None, tol=1e-5):
     return find_model_by_params(GalGA, row, param_cols=param_cols, tol=tol)
 
 
+def map_row_to_model_index(GalGA, row, *, param_cols=None, tol=1e-5):
+    """Public wrapper around :func:`_extract_model_index` with a stable return type."""
+
+    idx = _extract_model_index(GalGA, row, param_cols=param_cols, tol=tol)
+    return None if idx is None else int(idx)
+
+
+def ensure_model_indices(GalGA, df, *, inplace=False, column="model_idx",
+                         param_cols=None, drop_missing=False):
+    """Return a dataframe with ``column`` filled using walker/history aware mapping.
+
+    Parameters
+    ----------
+    GalGA : object
+        Container with ``results`` and optional ``walker_history`` attributes.
+    df : pandas.DataFrame
+        Catalogue of posterior samples / optimisation results.
+    inplace : bool, optional
+        If ``True`` the mapping is written into ``df`` directly, otherwise a copy
+        is returned.
+    column : str, optional
+        Name of the output column that will store the mapped indices.
+    param_cols : sequence, optional
+        Explicit parameter names to consider when matching.  Defaults to the
+        canonical set used across posterior utilities.
+    drop_missing : bool, optional
+        If ``True`` rows that cannot be mapped are dropped.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Dataframe with the ``column`` added/updated.
+    """
+
+    if df is None:
+        return None
+
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df if inplace else df.copy()
+
+    out = df if inplace else df.copy()
+    param_cols = _MATCH_PARAM_COLS if param_cols is None else tuple(param_cols)
+
+    indices = []
+    for _, row in out.iterrows():
+        idx = _extract_model_index(GalGA, row, param_cols=param_cols)
+        indices.append(np.nan if idx is None else int(idx))
+
+    out[column] = indices
+
+    if drop_missing:
+        mask = pd.notna(out[column])
+        out = out.loc[mask].copy()
+        out.reset_index(drop=True, inplace=True)
+        out[column] = out[column].astype(int)
+
+    return out
+
+
 def get_weighted_posterior_samples(results_df, fitness_col='fitness', percentile=10):
     """
     Extract top percentile of models with inverse-fitness weights.

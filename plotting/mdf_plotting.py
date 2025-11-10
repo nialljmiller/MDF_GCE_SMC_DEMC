@@ -27,6 +27,10 @@ from plotting.phys_plot import *
 
 from posterior_plotting_package.core_plots_posterior import post_plot_age_feh_detailed, post_plot_mdf_curves, post_plot_four_panel_alpha, post_plot_corner
 from posterior_plotting_package.phys_plot_posterior import post_plot_real_infall_physics, post_plot_physics_panels_standalone
+from posterior_plotting_package.posterior_utils import (
+    compute_weights,
+    ensure_model_indices,
+)
 
 from plotting.style import *
 use_paper_style()
@@ -179,14 +183,22 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     #'cosine', 'log_cosh', 'EMD', 'fitness'
 
     metric_name = "fitness"
-    df['confidence'] = df[metric_name].values * df['physics_penalty'].values
     df[metric_name] = pd.to_numeric(df[metric_name], errors="coerce")
-    from posterior_plotting_package.posterior_utils import compute_weights
-    from plotting.best_model_selector import _soft_map_row_to_model_idx
-    weights, T, _ = compute_weights(df['fitness'].values)
-    df['posterior_w'] = weights
 
-    df["model_idx"] = [ _soft_map_row_to_model_idx(GalGA, r) for _, r in df.iterrows() ]
+    if "physics_penalty" in df.columns:
+        df["physics_penalty"] = pd.to_numeric(df["physics_penalty"], errors="coerce")
+        df["confidence"] = df[metric_name] * df["physics_penalty"].fillna(1.0)
+    else:
+        df["confidence"] = df[metric_name]
+
+    df = ensure_model_indices(GalGA, df)
+
+    posterior_w = np.zeros(len(df), dtype=float)
+    finite = np.isfinite(df[metric_name].to_numpy(dtype=float))
+    if finite.any():
+        weights, _, _ = compute_weights(df.loc[finite, metric_name].to_numpy(dtype=float))
+        posterior_w[finite] = weights
+    df["posterior_w"] = posterior_w
 
 
 
