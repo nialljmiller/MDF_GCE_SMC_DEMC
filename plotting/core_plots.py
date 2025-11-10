@@ -13,7 +13,11 @@ from scipy.ndimage import gaussian_filter1d
 
 from plotting.best_model_selector import get_best_model_index
 
-from posterior_plotting_package.posterior_utils import compute_mdf_ensemble  # keep your actual import
+from posterior_plotting_package.posterior_utils import (
+    compute_mdf_ensemble,
+    ensure_model_indices,
+    map_row_to_model_index,
+)  # keep your actual import
 
 from plotting.style import *
 use_paper_style()
@@ -182,6 +186,13 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
 
     # pick true best (both GalGA index and row index)
     best_idx, best_row_idx = get_best_model_index(GalGA, results_df, primary=metric_col)
+    highlight_idx = best_idx if best_idx is not None and best_idx >= 0 else None
+
+    if results_df is not None and not results_df.empty:
+        best_row = results_df.loc[best_row_idx]
+        mapped_idx = map_row_to_model_index(GalGA, best_row)
+        if mapped_idx is not None and mapped_idx >= 0:
+            highlight_idx = mapped_idx
 
     fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(9, 8),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
@@ -190,7 +201,7 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
     n_all = len(GalGA.mdf_data)
     alpha = max(0.02, min(0.6, 8.0 / max(1, n_all)))
     for i, (x, y) in enumerate(GalGA.mdf_data):
-        if i == best_idx:
+        if highlight_idx is not None and i == highlight_idx:
             continue
         ax_main.plot(x, y, color="0.75", alpha=0.15 * alpha, lw=0.8, zorder=1)
 
@@ -200,25 +211,51 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
     x_lo, x_hi = float(np.nanmin(x_data)), float(np.nanmax(x_data))
     n_bins = x_data.size * 2  # keep double resolution
 
+    x_best = y_best = None
+
     if results_df is not None and not results_df.empty:
-        # must include sigma_2, t_2, infall_2 so compute_mdf_ensemble can map it
-        single_df = results_df.loc[[best_row_idx], ['sigma_2', 't_2', 'infall_2']].copy()
+        single_df = ensure_model_indices(
+            GalGA,
+            results_df.loc[[best_row_idx]].copy(),
+            drop_missing=True,
+        )
     else:
-        r = GalGA.results[best_idx]
-        single_df = pd.DataFrame([{'sigma_2': float(r[5]), 't_2': float(r[7]), 'infall_2': float(r[9])}])
+        single_df = None
 
-    single_w = np.array([1.0], dtype=float)
+    if single_df is not None and not single_df.empty:
+        single_w = np.ones(len(single_df), dtype=float)
+        best_ens = compute_mdf_ensemble(
+            GalGA,
+            single_df,
+            single_w,
+            feh_range=(x_lo, x_hi),
+            n_bins=n_bins,
+        )
+        if best_ens is not None:
+            x_best = np.asarray(best_ens['x'], dtype=float)
+            y_best = np.asarray(best_ens['median'], dtype=float)
 
-    best_ens = compute_mdf_ensemble(GalGA, single_df, single_w,
-                                    feh_range=(x_lo, x_hi),
-                                    n_bins=n_bins)
+    if x_best is None or y_best is None:
+        if highlight_idx is not None and highlight_idx < len(GalGA.mdf_data):
+            x_raw, y_raw = GalGA.mdf_data[highlight_idx]
+            x_best = np.asarray(x_raw, dtype=float)
+            y_best = np.asarray(y_raw, dtype=float)
 
-    x_best = best_ens['x']
-    y_best = best_ens['median']
+    if x_best is None or y_best is None or x_best.size == 0 or y_best.size == 0:
+        if len(GalGA.mdf_data):
+            x_raw, y_raw = GalGA.mdf_data[0]
+            x_best = np.asarray(x_raw, dtype=float)
+            y_best = np.asarray(y_raw, dtype=float)
+        else:
+            return fig  # Nothing to draw; avoid downstream errors
+
+    order = np.argsort(x_best)
+    x_best = x_best[order]
+    y_best = y_best[order]
 
     # peak-normalize to match posterior style
     m = np.nanmax(y_best)
-    if m > 0:
+    if np.isfinite(m) and m > 0:
         y_best = y_best / m
 
     # plot best curve on its native 2× grid  ✅
