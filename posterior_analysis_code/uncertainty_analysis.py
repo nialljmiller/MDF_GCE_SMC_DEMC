@@ -22,6 +22,8 @@ from scipy.interpolate import interp1d
 import seaborn as sns
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KernelDensity
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -85,7 +87,6 @@ class UncertaintyAnalysis:
             percentile=10,
             bins=30,
             ncols=3,
-            title='Marginalized posteriors (fitness-weighted KDE)'
         ):
         """
         1D marginalized posteriors for continuous parameters using fitness-weighted KDE
@@ -216,7 +217,7 @@ class UncertaintyAnalysis:
         for j in range(n_params, len(axes)):
             fig.delaxes(axes[j])
 
-        fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
+        #fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.98])
         save_path = os.path.join(self.output_path, 'marginalized_posteriors.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -229,7 +230,7 @@ class UncertaintyAnalysis:
                            percentile=10,
                            weight_power=1.0,
                            levels=(0.5, 0.8, 0.95),
-                           title='Pairwise parameter posteriors (fitness-weighted 2D KDE)'):
+                           ):
         """
         Triangular corner plot with 2D KDE contours for selected parameters.
         Saves: <output>/uncertainty/posterior_corner.png
@@ -339,7 +340,7 @@ class UncertaintyAnalysis:
                     ax.set_ylabel(pi)
                     ax.grid(alpha=0.15)
 
-        fig.suptitle(title + f' — Top {percentile}%', y=0.92, fontsize=14)
+        #fig.suptitle(title + f' — Top {percentile}%', y=0.92, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         save_path = os.path.join(self.output_path, 'posterior_corner.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -459,7 +460,7 @@ class UncertaintyAnalysis:
             r, c = divmod(j, ncols)
             axes[r, c].axis('off')
 
-        fig.suptitle(title + (f' — Top {percentile}%' if percentile else ''), y=0.98, fontsize=14)
+        #fig.suptitle(title + (f' — Top {percentile}%' if percentile else ''), y=0.98, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.96])
 
         save_path = os.path.join(self.output_path, 'weighted_param_intervals_facet.png')
@@ -540,7 +541,7 @@ class UncertaintyAnalysis:
 
 
 
-    def bootstrap_parameter_uncertainty(self, percentile=10, n_bootstrap=1000, 
+    def bootstrap_parameter_uncertainty(self, percentile=10, n_bootstrap=10000, 
                                       confidence_level=95, save_results=True):
         """
         Bootstrap resampling analysis of parameter uncertainties.
@@ -1097,7 +1098,7 @@ class UncertaintyAnalysis:
         for j in range(n_params, len(axes)):
             fig.delaxes(axes[j])
 
-        fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
+        #fig.suptitle(title + f' — Top {percentile}%', y=0.995, fontsize=14)
         plt.tight_layout(rect=[0, 0, 1, 0.98])
         save_path = os.path.join(self.output_path, 'marginalised_posteriors.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -1282,7 +1283,7 @@ class UncertaintyAnalysis:
             sns.heatmap(M, mask=mask, ax=ax, cmap=cmap, vmin=vmin, vmax=vmax,
                         square=True, cbar_kws={'shrink':0.8},
                         xticklabels=params, yticklabels=params, linewidths=0.3, linecolor='w')
-            ax.set_title(f'{name} — Top {percentile}%')
+            #ax.set_title(f'{name} — Top {percentile}%')
             plt.tight_layout()
             out = os.path.join(self.output_path, f'degeneracy_{name}.png')
             plt.savefig(out, dpi=300, bbox_inches='tight')
@@ -1291,6 +1292,8 @@ class UncertaintyAnalysis:
             print(f"{name} heatmap: {out}")
 
         return paths
+
+
 
 
     def plot_pca_degeneracy(self,
@@ -1316,57 +1319,222 @@ class UncertaintyAnalysis:
 
         X = np.vstack([np.asarray(top[p].values, dtype=float) for p in params]).T
         # weighted standardization
-        mu = np.array([self._wmean(X[:,j], w) for j in range(X.shape[1])])
-        sig = np.sqrt(np.array([max(self._wvar(X[:,j], w), 1e-30) for j in range(X.shape[1])]))
+        mu = np.array([self._wmean(X[:, j], w) for j in range(X.shape[1])])
+        sig = np.sqrt(np.array([max(self._wvar(X[:, j], w), 1e-30) for j in range(X.shape[1])]))
         Z = (X - mu) / sig
 
-        # weighted covariance
+        # weighted covariance (effectively correlation on Z)
         W = np.diag(w / np.sum(w))
         C = Z.T @ W @ Z  # (p x p)
+
         # symmetric -> eigen-decomposition
         evals, evecs = np.linalg.eigh(C)
-        # sort descending
         order = np.argsort(evals)[::-1]
         evals = evals[order]
         evecs = evecs[:, order]
         explained = evals / np.sum(evals)
+        cum_explained = np.cumsum(explained)
 
         # scree
-        fig, ax = plt.subplots(figsize=(7,4))
+        fig, ax = plt.subplots(figsize=(6, 6))
         ax.plot(np.arange(1, len(evals)+1), explained, marker='o')
         ax.set_xlabel('Principal component')
         ax.set_ylabel('Explained variance ratio')
         ax.grid(alpha=0.3)
         plt.tight_layout()
-        scree_path = os.path.join(self.output_path, 'pca_screen.png')
+        scree_path = os.path.join(self.output_path, 'pca_screen.png')  # keep existing filename
         plt.savefig(scree_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
-        # loadings heatmap for top k
+        # loadings DataFrame (columns = PCs, rows = params)
         k = min(n_loadings, len(params))
-        loadings = pd.DataFrame(evecs[:, :k],
-                                index=params,
-                                columns=[f'PC{i+1}' for i in range(k)])
-        fig, ax = plt.subplots(figsize=(1.2*k+4, 0.35*len(params)+3))
-        sns.heatmap(loadings, cmap='coolwarm', center=0, ax=ax,
-                    cbar_kws={'shrink':0.7}, annot=False, linewidths=0.3, linecolor='w')
+        loadings_full = pd.DataFrame(evecs, index=params, columns=[f'PC{i+1}' for i in range(len(evals))])
+        loadings = loadings_full.iloc[:, :k]
+
+        plt.clf()
+        # heatmap with a colorbar that's flush and same height
+        fig, ax = plt.subplots(figsize=(5,5))
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="3%", pad=0.0)  # no whitespace
+
+        sns.heatmap(
+            loadings,
+            cmap='coolwarm',
+            center=0,
+            ax=ax,
+            cbar=True,
+            cbar_ax=cax,
+            cbar_kws={'shrink': 1.0},  # same height
+            annot=False,
+            linewidths=0.3,
+            linecolor='w'
+        )
+        ax.set_xlabel('Principal components')
+        ax.set_ylabel('Parameters')
         plt.tight_layout()
         loadings_path = os.path.join(self.output_path, 'pca_loadings.png')
         plt.savefig(loadings_path, dpi=300, bbox_inches='tight'); plt.close(fig)
 
-        # condition number (sloppiness index)
-        cond = float(np.sqrt(np.max(evals)/max(np.min(evals), 1e-30)))
+        # diagnostics for summary
+        cond = float(np.sqrt(np.max(evals) / max(np.min(evals), 1e-30)))
+        eff_rank_99 = int(np.searchsorted(cum_explained, 0.99) + 1)
+        kaiser_count = int(np.sum(evals > 1.0))  # meaningful for standardized features
+
+        # communalities = sum over selected PCs of squared loadings (how much of each var is captured)
+        # provide two views: across all PCs and within the displayed top-k PCs
+        communalities_all = (loadings_full.values**2).sum(axis=1)
+        communalities_k   = (loadings.values**2).sum(axis=1)
+        comm_df = pd.DataFrame({
+            'param': params,
+            'communality_top_k': communalities_k,
+            'communality_all': communalities_all
+        }).sort_values('communality_all', ascending=False)
+
+        # per-PC top contributors (by absolute loading), keep top 8 per PC
+        top_per_pc_lines = []
+        top_n = min(8, len(params))
+        for j in range(len(evals)):
+            pcname = f'PC{j+1}'
+            vec = loadings_full[pcname]
+            order_j = np.argsort(np.abs(vec.values))[::-1][:top_n]
+            entries = [f"{params[i]}({vec.values[i]:+.3f})" for i in order_j]
+            top_per_pc_lines.append(f"{pcname} top |loadings|: " + ", ".join(entries))
+
+        # write summary
         with open(os.path.join(self.output_path, 'pca_summary.txt'), 'w') as f:
             f.write(f"Condition number (sqrt(lambda_max/lambda_min)): {cond:.3e}\n")
-            f.write("Explained variance ratios:\n")
-            for i, r in enumerate(explained, 1):
-                f.write(f"  PC{i}: {r:.4f}\n")
+            f.write(f"Eigenvalue range: min={np.min(evals):.6f}, max={np.max(evals):.6f}\n")
+            f.write(f"Effective rank (>=99% variance): {eff_rank_99}\n")
+            f.write(f"Kaiser components (eigenvalue > 1): {kaiser_count}\n\n")
+
+            f.write("Explained variance ratios (and cumulative):\n")
+            for i, (r, cr) in enumerate(zip(explained, cum_explained), 1):
+                f.write(f"  PC{i}: {r:.4f}  (cum {cr:.4f})\n")
+            f.write("\n")
+
+            f.write("Top contributors per PC (signed loadings):\n")
+            for line in top_per_pc_lines:
+                f.write("  " + line + "\n")
+            f.write("\n")
+
+            f.write("Communalities (variance captured by PCs):\n")
+            for _, row in comm_df.iterrows():
+                f.write(f"  {row['param']}: top_k={row['communality_top_k']:.3f}, all={row['communality_all']:.3f}\n")
 
         print(f"PCA scree:    {scree_path}")
         print(f"PCA loadings: {loadings_path}")
 
-        return {'scree':scree_path, 'loadings':loadings_path}, {
-            'eigenvalues': evals, 'explained_ratio': explained,
-            'components': evecs, 'mean': mu, 'std': sig
+
+
+
+
+
+
+        # default grouping (can be passed in later if you want it configurable)
+        group_map = {
+            "Star formation efficiency": ["sfe", "delta_sfe"],
+            "Early infall timing":       ["t_1", "infall_1"],
+            "Late infall timing":        ["t_2", "infall_2"],
+            "Accretion / mass budget":   ["sigma_2", "mgal"],
+            "IMF high-mass scale":       ["imf_upper"],
+            "SN Ia normalization":       ["nb"],
+        }
+
+        # restrict to parameters that actually exist
+        group_map = {
+            g: [p for p in ps if p in loadings_full.index]
+            for g, ps in group_map.items()
+        }
+        group_map = {g: ps for g, ps in group_map.items() if len(ps) > 0}
+
+        # aggregate loadings per group across ALL PCs, then show first k PCs like the ungrouped heatmap
+        # signed group loading per PC = mean of member loadings (features are standardized)
+        # magnitude (for reporting) = L2 norm within group (preserves strength irrespective of cancellation)
+        pcs = loadings_full.columns
+        G = []
+        for g, ps in group_map.items():
+            L = loadings_full.loc[ps, pcs]           # (|ps| x n_pc)
+            signed_mean = L.mean(axis=0)             # (n_pc,)
+            l2_mag = np.sqrt((L**2).sum(axis=0))     # (n_pc,)
+            G.append((g, signed_mean.values, l2_mag.values))
+        group_names = [g for g, _, _ in G]
+        group_signed = np.vstack([v for _, v, _ in G])   # (n_groups x n_pc)
+        group_mag    = np.vstack([m for _, _, m in G])   # (n_groups x n_pc)
+
+        # build dataframe for top-k PCs just like before
+        k = min(n_loadings, group_signed.shape[1])
+        group_load_df = pd.DataFrame(
+            group_signed[:, :k],
+            index=group_names,
+            columns=[f'PC{i+1}' for i in range(k)]
+        )
+
+        # heatmap (flush, full-height colorbar)
+        fig, ax = plt.subplots(figsize=(1.2*k + 4, 0.45*len(group_names) + 3))
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="3%", pad=0.0)
+
+        sns.heatmap(
+            group_load_df,
+            cmap="coolwarm",
+            center=0,
+            ax=ax,
+            cbar=True,
+            cbar_ax=cax,
+            cbar_kws={'shrink': 1.0},
+            annot=False,
+            linewidths=0.3,
+            linecolor='w'
+        )
+        ax.set_xlabel('Principal components')
+        ax.set_ylabel('Physics groups')
+        plt.tight_layout()
+        group_loadings_path = os.path.join(self.output_path, 'pca_loadings_grouped.png')
+        plt.savefig(group_loadings_path, dpi=300, bbox_inches='tight'); plt.close(fig)
+
+        # write grouped summary (signed means per PC + group magnitudes and communalities)
+        # group "communality" proxy: sum over PCs of squared group signed loadings (captures shared variance directionally);
+        # also report sum of per-parameter communalities for comparison.
+        with open(os.path.join(self.output_path, 'pca_summary_grouped.txt'), 'w') as f:
+            f.write("Grouped physics PCA summary\n")
+            f.write("Groups:\n")
+            for g, ps in group_map.items():
+                f.write(f"  - {g}: {', '.join(ps)}\n")
+            f.write("\nSigned mean loadings per PC (groups x PCs):\n")
+            for i, g in enumerate(group_names):
+                vals = ", ".join([f"PC{j+1}={group_signed[i, j]:+.3f}" for j in range(group_signed.shape[1])])
+                f.write(f"  {g}: {vals}\n")
+            f.write("\nGroup magnitudes per PC (L2 of member loadings within group):\n")
+            for i, g in enumerate(group_names):
+                vals = ", ".join([f"PC{j+1}={group_mag[i, j]:.3f}" for j in range(group_mag.shape[1])])
+                f.write(f"  {g}: {vals}\n")
+
+            # per-group "communality" (signed) over all PCs, and parameter-sum check
+            grp_comm_signed = (group_signed**2).sum(axis=1)
+            f.write("\nGroup communalities (sum over PCs of signed-mean^2):\n")
+            for i, g in enumerate(group_names):
+                f.write(f"  {g}: {grp_comm_signed[i]:.3f}\n")
+
+            # also dump classical per-parameter communalities (already computed above as 'comm_df')
+            f.write("\nPer-parameter communalities (from ungrouped PCA):\n")
+            for _, row in comm_df.iterrows():
+                f.write(f"  {row['param']}: top_k={row['communality_top_k']:.3f}, all={row['communality_all']:.3f}\n")
+
+        # also return the new path in the first return dict
+        paths_grouped = {'scree': scree_path, 'loadings': loadings_path, 'grouped_loadings': group_loadings_path}
+
+
+
+
+
+
+
+
+        return {'scree': scree_path, 'loadings': loadings_path}, {
+            'eigenvalues': evals,
+            'explained_ratio': explained,
+            'components': evecs,
+            'mean': mu,
+            'std': sig
         }
 
 
@@ -1817,6 +1985,15 @@ class UncertaintyAnalysis:
         ptile = cut['percentile']        # use everywhere downstream (corner, posteriors, etc.)
         print(f"[cutoff] {cut['loss_cutoff']:.6g}  → keep ≈ {ptile:.2f}%")
 
+        print("Running weighted PCA (degeneracy)...")
+        pca_paths, pca_res = self.plot_pca_degeneracy(percentile=ptile, weight_power=1.0, n_loadings=6)
+        # --- Degeneracy quantification ---
+        print("Computing pairwise degeneracy metrics...")
+        deg_pairs = self.quantify_pairwise_degeneracy(percentile=ptile, weight_power=1.0, mi_bins=24)
+        print("Rendering degeneracy heatmaps...")
+        deg_paths = self.plot_degeneracy_heatmaps(percentile=ptile, weight_power=1.0, mi_bins=24)
+
+
         # Run all analyses (text outputs)
         bootstrap_results = self.bootstrap_parameter_uncertainty()
         weighted_results  = self.fitness_weighted_statistics()
@@ -1835,7 +2012,7 @@ class UncertaintyAnalysis:
             percentile=ptile,
             bins=30,
             ncols=3,
-            title='Marginalized posteriors (fitness-weighted)',
+            #title='Marginalized posteriors (fitness-weighted)',
             show_kde=True,
             show_gaussian=True
         )
@@ -1848,15 +2025,6 @@ class UncertaintyAnalysis:
             percentile=ptile, weight_power=1.0
         )
 
-
-
-        # --- Degeneracy quantification ---
-        print("Computing pairwise degeneracy metrics...")
-        deg_pairs = self.quantify_pairwise_degeneracy(percentile=ptile, weight_power=1.0, mi_bins=24)
-        print("Rendering degeneracy heatmaps...")
-        deg_paths = self.plot_degeneracy_heatmaps(percentile=ptile, weight_power=1.0, mi_bins=24)
-        print("Running weighted PCA (degeneracy)...")
-        pca_paths, pca_res = self.plot_pca_degeneracy(percentile=ptile, weight_power=1.0, n_loadings=6)
 
 
 
