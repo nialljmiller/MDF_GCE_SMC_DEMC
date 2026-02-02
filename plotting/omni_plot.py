@@ -812,7 +812,7 @@ def plot_omni_info_figure(
     if best_age_x is not None:
         ax_age.plot(best_age_x, best_age_y, 'r-', linewidth=3, label='Best Model', zorder=3)
 
-    ax_age.set_xlabel('Age (Gyr)', fontsize=14)
+    ax_age.set_xlabel('LookbAck Time (Gyr)', fontsize=14)
     ax_age.set_ylabel('[Fe/H]', fontsize=14)
     ax_age.set_xlim(0, 14)
     ax_age.set_ylim(-2, 1)
@@ -988,7 +988,7 @@ def plot_omni_figure(
     for (t_arr, feh_arr), res in zip(GalGA.age_data, GalGA.results):
         is_best = all(abs(p - b) < 1e-5 for p, b in zip((res[5], res[7], res[9]), best_params))
         t = np.asarray(t_arr, float)  # years
-        age = (t[-1] - t) / 1e9       # Age (Gyr), increasing to the right
+        age = (t[-1] - t) / 1e9       # LookbAck Time (Gyr), increasing to the right
         age_x, age_y = age, np.asarray(feh_arr, float)
         ax_amr.plot(age_x, age_y, color="0.75", alpha=0.001, lw=0.8, zorder=1)
 
@@ -1007,7 +1007,7 @@ def plot_omni_figure(
     # x-axis at top only
     ax_amr.xaxis.set_ticks_position("top")
     ax_amr.xaxis.set_label_position("top")
-    ax_amr.set_xlabel("Age (Gyr)")
+    ax_amr.set_xlabel("LookbAck Time (Gyr)")
     ax_amr.tick_params(axis="x", bottom=False)
 
     # y-axis on right

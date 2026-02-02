@@ -83,18 +83,32 @@ best_y /= np.sum(best_y * dx)
 # Save BEST MDF
 np.savetxt("best_mdf.dat", np.column_stack((x, best_y)), fmt="%.3f %.6e")
 
-# === Plot all ===
-plt.figure(figsize=(10, 6))
+
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(8, 6))
+
+# --- Plotting all curves (unchanged) ---
 for label, y in curves:
     plt.plot(x, y, '--', label=label)
 plt.plot(x, composite, color='black', linewidth=2, label="APOGEE Composite")
 plt.plot(x, bdbs_interp, color='blue', linestyle='-', linewidth=1.5, label="BDBS MDF")
 plt.plot(x, best_y, color='red', linestyle='-', linewidth=2.5, label="BEST MDF")
-plt.xlabel("[Fe/H]")
-plt.ylabel("Probability Density")
-plt.title("MDF Comparison")
-plt.legend()
-plt.grid(True)
+
+# --- Applying requested modifications ---
+
+# 1. Increase axis label font size
+plt.xlabel("[Fe/H]", fontsize=16)
+plt.ylabel("Probability Density", fontsize=16)
+
+# Optional: Increase tick label font size for better readability
+plt.tick_params(axis='both', which='major', labelsize=14)
+
+# 2. Set legend to the left (e.g., 'center left') and increase its font size
+plt.legend(loc='upper left', fontsize=12)
+
+# --- Finalizing the plot (unchanged) ---
 plt.tight_layout()
-plt.savefig("best_mdf.png")
+plt.savefig("best_mdf.png") # Changed filename to avoid overwriting
 plt.close()

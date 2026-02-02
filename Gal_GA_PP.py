@@ -1477,6 +1477,11 @@ class GalacticEvolutionGA:
             if output_interval and ((gen) % output_interval == 0 or gen == num_generations - 1):
                 self.save_partial_results(gen)
 
+            # inside your GA driver, after optimisation:
+            self.export_ga_samples()
+            self.export_full_evaluation_table()
+
+
             gc.collect()
 
 
@@ -1868,6 +1873,64 @@ class GalacticEvolutionGA:
         
         print("Walker history saved")
 
+
+    def export_full_evaluation_table(self):
+        """
+        One row per evaluated model:
+          - input parameters + metrics + loss + generation + evaluation
+          - MDF, alpha, and age tracks attached via evaluation index
+
+        Writes: full_evaluation_table.pkl and .csv in self.output_path
+        """
+
+        if not getattr(self, "sample_records", None):
+            print("[full-table] sample_records is empty; nothing to export")
+            return None
+
+        df = pd.DataFrame(self.sample_records)
+
+        # ensure loss column
+        if "loss" not in df.columns and "fitness" in df.columns:
+            df["loss"] = df["fitness"]
+
+        if "evaluation" not in df.columns:
+            raise RuntimeError(
+                "export_full_evaluation_table: 'evaluation' column missing in sample_records"
+            )
+
+        eval_idx = df["evaluation"].astype(int).to_numpy()
+
+        # link to MDF / alpha / age tracks
+        mdf_x = [self.mdf_data[i][0] for i in eval_idx]
+        mdf_y = [self.mdf_data[i][1] for i in eval_idx]
+        alpha_tracks = [self.alpha_data[i] for i in eval_idx]
+
+        df["mdf_x"] = mdf_x
+        df["mdf_y"] = mdf_y
+        df["alpha_tracks"] = alpha_tracks
+
+        if hasattr(self, "age_data") and len(self.age_data) > 0:
+            age_x = [self.age_data[i][0] for i in eval_idx]
+            age_y = [self.age_data[i][1] for i in eval_idx]
+            df["age_x"] = age_x
+            df["age_y"] = age_y
+
+        if hasattr(self, "labels") and len(self.labels) == len(self.mdf_data):
+            df["label"] = [self.labels[i] for i in eval_idx]
+
+        if hasattr(self, "model_numbers") and len(self.model_numbers) == len(self.mdf_data):
+            df["model_number"] = [self.model_numbers[i] for i in eval_idx]
+
+        os.makedirs(self.output_path, exist_ok=True)
+
+        pkl_path = os.path.join(self.output_path, "full_evaluation_table.pkl")
+        csv_path = os.path.join(self.output_path, "full_evaluation_table.csv")
+
+        df.to_pickle(pkl_path)
+        df.to_csv(csv_path, index=False)
+
+        print(f"[full-table] wrote {pkl_path} and {csv_path} (rows={len(df)})")
+        return pkl_path
 
 
 

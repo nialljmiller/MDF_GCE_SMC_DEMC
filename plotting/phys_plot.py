@@ -386,7 +386,7 @@ Two-Infall Parameters:
 ├─ σ₂ = {sigma_2:.1f}
 ├─ Episode I: t₁ = {t_1:.3f} Gyr, τ₁ = {infall_1:.2f} Gyr
 ├─ Episode II: t₂ = {t_2:.1f} Gyr, τ₂ = {infall_2:.2f} Gyr  
-└─ SFE Evolution: {sfe_val:.4f} → {sfe_val + delta_sfe_val:.4f}
+└─ SFE Evolution: {sfe_val:.4f} → {sfe_val * delta_sfe_val:.4f}
 
 Mass:
 ├─ Total inflow: {total_inflow:.2e}

@@ -346,7 +346,6 @@ def post_plot_real_infall_physics(GalGA, results_df=None, save_path='Real_Infall
             fitness_col='fitness',
             percentile=percentile,        # optional guard; you can set None if you want "use all"
             n_draws=max_models,
-            resampling='systematic'
         )
 
         ensemble = compute_physics_ensemble(GalGA, draws_df, draw_w, max_models=max_models)
@@ -585,7 +584,7 @@ Two-Infall Parameters:
 ├─ σ₂ = {sigma_2:.1f}
 ├─ Episode I: t₁ = {t_1:.3f} Gyr, τ₁ = {infall_1:.2f} Gyr
 ├─ Episode II: t₂ = {t_2:.1f} Gyr, τ₂ = {infall_2:.2f} Gyr  
-└─ SFE Evolution: {sfe_val:.4f} → {sfe_val + delta_sfe_val:.4f}
+└─ SFE Evolution: {sfe_val:.4f} → {sfe_val * delta_sfe_val:.4f}
 
 Final Masses (median):
 ├─ Stellar: {stellar_median[-1]:.2e} M☉
@@ -621,7 +620,6 @@ def _physics_draws_and_ensemble(GalGA, results_df, percentile, n_draws, age_hi_g
         fitness_col='fitness',
         percentile=percentile,
         n_draws=n_draws,
-        resampling='systematic'
     )
     ens = compute_physics_ensemble(GalGA, draws_df, draw_w, max_models=n_draws)
     return ens
@@ -646,7 +644,7 @@ def post_plot_physics_panels_standalone(GalGA, results_df=None, use_posterior=Tr
             ens = _physics_draws_and_ensemble(GalGA, results_df, percentile, max_models)
         else:
             ens = ensemble
-            
+
         ages = ens['sfr']['x']
         sfr = ens['sfr']; inflow = ens['inflow']; outflow = ens['outflow']
         gas = ens['gas_mass']; stellar = ens['stellar_mass']; metal = ens['metallicity']

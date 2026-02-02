@@ -24,6 +24,8 @@ from plotting.plot_amr import *
 from plotting.omni_plot import *              # omni info figure (if you use it)
 from plotting.core_plots import *
 from plotting.phys_plot import *
+from plotting.analysis_plot import run_analysis
+
 
 from posterior_plotting_package.core_plots_posterior import post_plot_age_feh_detailed, post_plot_mdf_curves, post_plot_four_panel_alpha, post_plot_corner
 from posterior_plotting_package.phys_plot_posterior import post_plot_real_infall_physics, post_plot_physics_panels_standalone
@@ -31,6 +33,14 @@ from posterior_plotting_package.posterior_utils import (
     compute_weights,
     ensure_model_indices,
 )
+
+# Import unified matching utilities
+from matching_utils import (
+    get_best_model_matched,
+    get_matched_posterior_samples,
+    match_dataframe_to_models,
+)
+
 
 from plotting.style import *
 use_paper_style()
@@ -116,6 +126,94 @@ def extract_metrics(results_file: str):
 
 
 
+def extract_metrics_from_df(df: pd.DataFrame):
+    """
+    Same as extract_metrics, but starting from an in-memory DataFrame
+    instead of a CSV path. Used for combined_full_evaluation_table.pkl.
+    """
+
+    cols = df.columns
+
+    # core parameter columns
+    sigma_2_vals   = df["sigma_2"].to_numpy()
+    t_1_vals       = df["t_1"].to_numpy()
+    t_2_vals       = df["t_2"].to_numpy()
+    infall_1_vals  = df["infall_1"].to_numpy()
+    infall_2_vals  = df["infall_2"].to_numpy()
+    sfe_vals       = df["sfe"].to_numpy()
+    delta_sfe_vals = df["delta_sfe"].to_numpy()
+    imf_upper_vals = df["imf_upper"].to_numpy()
+
+    if "m_gal" in cols:
+        mgal_vals = df["m_gal"].to_numpy()
+    else:
+        mgal_vals = df["mgal"].to_numpy()
+
+    if "n_bulge" in cols:
+        nb_vals = df["n_bulge"].to_numpy()
+    else:
+        nb_vals = df["nb"].to_numpy()
+
+    ignored = {
+        "sigma_2",
+        "t_1",
+        "t_2",
+        "infall_1",
+        "infall_2",
+        "sfe",
+        "delta_sfe",
+        "imf_upper",
+        "m_gal",
+        "mgal",
+        "n_bulge",
+        "nb",
+    }
+
+    metrics_dict: dict[str, np.ndarray] = {}
+    for col in cols:
+        if col.lower() in ignored:
+            continue
+        metrics_dict[col] = pd.to_numeric(df[col], errors="coerce").to_numpy()
+
+    # choose controlling metric; default to "fitness" if present,
+    # otherwise fall back to "loss" or just pick the first metric.
+    metric_col = None
+    if "fitness" in df.columns:
+        metric_col = "fitness"
+    elif "loss" in df.columns:
+        metric_col = "loss"
+        # alias to fitness for downstream code
+        df["fitness"] = pd.to_numeric(df["loss"], errors="coerce")
+    else:
+        # crude fallback: pick some numeric column that's not in ignored
+        for col in cols:
+            if col.lower() in ignored:
+                continue
+            metric_col = col
+            break
+        if metric_col is None:
+            metric_col = "fitness"  # will be mostly NaN
+
+    # ensure this column exists in metrics_dict and as 'fitness'
+    metrics_dict.setdefault(metric_col, pd.to_numeric(df[metric_col], errors="coerce").to_numpy())
+    if "fitness" in df.columns:
+        metrics_dict.setdefault("fitness", pd.to_numeric(df["fitness"], errors="coerce").to_numpy())
+
+    return (
+        sigma_2_vals,
+        t_1_vals,
+        t_2_vals,
+        infall_1_vals,
+        infall_2_vals,
+        sfe_vals,
+        delta_sfe_vals,
+        imf_upper_vals,
+        mgal_vals,
+        nb_vals,
+        metrics_dict,
+        df,
+        metric_col,
+    )
 
 
 
@@ -140,38 +238,71 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # ----------------------------
     ensure_dirs(GalGA.output_path)
 
-    # Results dataframe (retain existing error handling/prints)
-    try:
-        (
-            sigma_2_vals,
-            t_1_vals,
-            t_2_vals,
-            infall_1_vals,
-            infall_2_vals,
-            sfe_vals,
-            delta_sfe_vals,
-            imf_upper_vals,
-            mgal_vals,
-            nb_vals,
-            metrics_dict,
-            df,
-            metric_name,
-        ) = extract_metrics(results_file)
-    except FileNotFoundError:
-        print(f"Results file {results_file} not found; continuing without a dataframe.")
-        df = pd.DataFrame()
-        metrics_dict = {}
-        metric_name = "fitness"
-        sigma_2_vals = t_1_vals = t_2_vals = infall_1_vals = infall_2_vals = np.array([])
-        sfe_vals = delta_sfe_vals = imf_upper_vals = mgal_vals = nb_vals = np.array([])
-    except Exception as exc:
-        print(f"Unable to load {results_file}: {exc}")
-        df = pd.DataFrame()
-        metrics_dict = {}
-        metric_name = "fitness"
-        sigma_2_vals = t_1_vals = t_2_vals = infall_1_vals = infall_2_vals = np.array([])
-        sfe_vals = delta_sfe_vals = imf_upper_vals = mgal_vals = nb_vals = np.array([])
+    # ----------------------------
+    # Load results:
+    #   Prefer combined_full_evaluation_table.pkl if it exists
+    #   Fall back to the legacy simulation_results.csv otherwise
+    # ----------------------------
+    combined_pkl = os.path.join(GalGA.output_path, "combined_full_evaluation_table.pkl")
 
+    if os.path.exists(combined_pkl):
+        print(f"Using combined full evaluation table: {combined_pkl}")
+        try:
+            df_raw = pd.read_pickle(combined_pkl)
+            (
+                sigma_2_vals,
+                t_1_vals,
+                t_2_vals,
+                infall_1_vals,
+                infall_2_vals,
+                sfe_vals,
+                delta_sfe_vals,
+                imf_upper_vals,
+                mgal_vals,
+                nb_vals,
+                metrics_dict,
+                df,
+                metric_name,
+            ) = extract_metrics_from_df(df_raw)
+        except Exception as exc:
+            print(f"Unable to load {combined_pkl}: {exc}")
+            df = pd.DataFrame()
+            metrics_dict = {}
+            metric_name = "fitness"
+            sigma_2_vals = t_1_vals = t_2_vals = infall_1_vals = infall_2_vals = np.array([])
+            sfe_vals = delta_sfe_vals = imf_upper_vals = mgal_vals = nb_vals = np.array([])
+    else:
+        print("shit dick")
+        try:
+            (
+                sigma_2_vals,
+                t_1_vals,
+                t_2_vals,
+                infall_1_vals,
+                infall_2_vals,
+                sfe_vals,
+                delta_sfe_vals,
+                imf_upper_vals,
+                mgal_vals,
+                nb_vals,
+                metrics_dict,
+                df,
+                metric_name,
+            ) = extract_metrics(results_file)
+        except FileNotFoundError:
+            print(f"Results file {results_file} not found; continuing without a dataframe.")
+            df = pd.DataFrame()
+            metrics_dict = {}
+            metric_name = "fitness"
+            sigma_2_vals = t_1_vals = t_2_vals = infall_1_vals = infall_2_vals = np.array([])
+            sfe_vals = delta_sfe_vals = imf_upper_vals = mgal_vals = nb_vals = np.array([])
+        except Exception as exc:
+            print(f"Unable to load {results_file}: {exc}")
+            df = pd.DataFrame()
+            metrics_dict = {}
+            metric_name = "fitness"
+            sigma_2_vals = t_1_vals = t_2_vals = infall_1_vals = infall_2_vals = np.array([])
+            sfe_vals = delta_sfe_vals = imf_upper_vals = mgal_vals = nb_vals = np.array([])
 
     ####################
     ####################
@@ -185,21 +316,48 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     metric_name = "fitness"
     df[metric_name] = pd.to_numeric(df[metric_name], errors="coerce")
 
-    if "physics_penalty" in df.columns:
-        df["physics_penalty"] = pd.to_numeric(df["physics_penalty"], errors="coerce")
-        df["confidence"] = df[metric_name] * df["physics_penalty"].fillna(1.0)
-    else:
-        df["confidence"] = df[metric_name]
+    df["physics_penalty"] = pd.to_numeric(df["physics_penalty"], errors="coerce")
+    df["confidence"] = df[metric_name] * df["physics_penalty"].fillna(1.0)
 
-    df = ensure_model_indices(GalGA, df)
+    #df = ensure_model_indices(GalGA, df)
 
     posterior_w = np.zeros(len(df), dtype=float)
     finite = np.isfinite(df[metric_name].to_numpy(dtype=float))
     if finite.any():
         weights, _, _ = compute_weights(df.loc[finite, metric_name].to_numpy(dtype=float))
         posterior_w[finite] = weights
-    df["posterior_w"] = posterior_w
+    posterior_name = "posterior_w"
+    df[posterior_name] = posterior_w
 
+    inv_posterior_name = "inv_posterior_w"
+    df[inv_posterior_name] = 1.0/posterior_w
+
+    best_idx, best_row = get_best_model_matched(GalGA, df, fitness_col=metric_name, verbose=True)
+
+    # ----------------------------
+    # Fit plots
+    # ----------------------------
+
+    print("\n Generating posterior MDF fit plot...")
+    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=100)
+    plt.close('all')
+    print("\n Generating MDF fit plot...")
+    plot_mdf_curves(GalGA, feh, normalized_count, df, metric_col=metric_name, best_idx = best_idx)
+    plt.close('all')
+
+    print("\n Generating posterior four-panel alpha comparison...")
+    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=100)
+    plt.close('all')
+    print("\n Generating four-panel alpha comparison...")
+    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df, metric_col=metric_name, best_idx = best_idx)
+    plt.close('all')
+
+    print("\n Generating posterior age-metallicity relation plots...")
+    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=100)
+    plt.close('all')
+    print("\n Generating age-metallicity relation plots...")
+    plot_age_feh_detailed(GalGA,Fe_H,age_Joyce,age_Bensby,results_df=df,n_bins=10,metric_col=metric_name, best_idx = best_idx)
+    plt.close('all')
 
 
 
@@ -209,37 +367,10 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     # Corner plots
     # ----------------------------
     print("\n Generating posterior cornerplots...")
-    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = metric_name)
-    #post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'physics_penalty')
-    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=None, nsamples=50000000000, metric_val = 'confidence')    
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=100, nsamples=50000000000, metric_val = metric_name)
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=100, nsamples=50000000000, metric_val = 'physics_penalty')
+    post_plot_corner(GalGA, results_df=df, use_posterior=True, percentile=100, nsamples=50000000000, metric_val = 'confidence')    
     plt.close('all')
-
-
-
-    # ----------------------------
-    # Fit plots
-    # ----------------------------
-
-    print("\n Generating posterior MDF fit plot...")
-    post_plot_mdf_curves(GalGA, feh, normalized_count, results_df=df, use_posterior=True, percentile=10)
-    plt.close('all')
-    print("\n Generating posterior four-panel alpha comparison...")
-    post_plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, results_df=df, use_posterior=True, percentile=10)
-    plt.close('all')
-    print("\n Generating posterior age-metallicity relation plots...")
-    post_plot_age_feh_detailed(GalGA, Fe_H, age_Joyce, age_Bensby, results_df=df, use_posterior=True, percentile=10)
-    plt.close('all')
-
-    print("\n Generating MDF fit plot...")
-    plot_mdf_curves(GalGA, feh, normalized_count, df, metric_col=metric_name)
-    plt.close('all')
-    print("\n Generating four-panel alpha comparison...")
-    plot_four_panel_alpha(GalGA, Fe_H, Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe, df, metric_col=metric_name)
-    plt.close('all')
-    print("\n Generating age-metallicity relation plots...")
-    plot_age_feh_detailed(GalGA,Fe_H,age_Joyce,age_Bensby,results_df=df,n_bins=10,metric_col=metric_name)
-    plt.close('all')
-
 
 
     # ----------------------------
@@ -250,11 +381,11 @@ def generate_all_plots(GalGA, feh, normalized_count, results_file=None):
     plt.close('all')
     #post_plot_physics_panels_standalone(GalGA, results_df=df, use_posterior=True, percentile=1, max_models=2)
     plt.close('all')
-    generate_physics_plots(GalGA, results_file=results_file)
+    #generate_physics_plots(GalGA, results_file=results_file)
     plt.close('all')
 
 
-
+    run_analysis(GalGA, results_file=results_file)
 
 
     # ----------------------------

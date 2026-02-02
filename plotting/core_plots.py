@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import argparse
 import numpy as np
@@ -7,39 +8,18 @@ from matplotlib import gridspec
 from scipy.interpolate import interp1d, UnivariateSpline
 from scipy.stats import binned_statistic
 from scipy.ndimage import gaussian_filter1d
-from scipy.stats import gaussian_kde  # only used for your smoothing helper if needed
+from scipy.stats import gaussian_kde
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.ndimage import gaussian_filter1d
 
-from plotting.best_model_selector import get_best_model_index
-
-from posterior_plotting_package.posterior_utils import (
-    compute_mdf_ensemble,
-    ensure_model_indices,
-    map_row_to_model_index,
-)  # keep your actual import
+# Import unified matching utilities
+from matching_utils import (
+    get_best_model_matched,
+    get_matched_posterior_samples,
+    match_dataframe_to_models,
+)
 
 from plotting.style import *
 use_paper_style()
-
-
-
-
-# put near top of core_plots.py
-def _best_index_by_params(results_df, metric_col: str = 'fitness'):
-    if results_df is None or results_df.empty:
-        return 0
-    preferred = metric_col if metric_col in results_df.columns else None
-    if preferred is None and 'fitness' in results_df.columns:
-        preferred = 'fitness'
-    if preferred is None and 'confidence' in results_df.columns:
-        preferred = 'confidence'
-    if preferred is None:
-        return int(results_df.index[0])
-    series = pd.to_numeric(results_df[preferred], errors='coerce')
-    return int(series.idxmin())
-
-
 
 
 def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
@@ -47,8 +27,6 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     x = np.asarray(x_data)[mask]
     y = np.asarray(y_data)[mask]
     return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
-
-
 
 
 def plot_age_feh_detailed(
@@ -62,21 +40,33 @@ def plot_age_feh_detailed(
     feh_bins=None,
     age_limit_gyr=14.2,
     metric_col: str = 'fitness',
+    best_idx = None    
 ):
-
-    if save_path is None: save_path = GalGA.output_path + 'Age_Metallicity_all.png'
+    """
+    Plot age-metallicity relation with best model using unified matching.
+    
+    This function now uses the unified matching system to ensure the best model
+    is correctly identified and matched to walker tracks.
+    """
+    if save_path is None:
+        save_path = GalGA.output_path + 'Age_Metallicity_all.png'
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
 
     Fe_H = np.asarray(Fe_H, float)
     age_Joyce = np.asarray(age_Joyce, float)
     age_Bensby = np.asarray(age_Bensby, float)
 
-    # Select the single best model deterministically
-    best_idx, _ = get_best_model_index(GalGA, results_df, primary=metric_col)
-
+    # Use unified matching to get best model
+    if best_idx is None:
+        best_idx, best_row = get_best_model_matched(GalGA, results_df, fitness_col=metric_col, verbose=True)
+    
+    if best_idx is None:
+        print("[WARNING] Could not match best model - using index 0")
+        best_idx = 0
 
     fig = plt.figure(figsize=(18, 11))
-    gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[3, 1], wspace=0.0, hspace=0.0, left=0.07, right=0.97, top=0.96, bottom=0.08)
+    gs = gridspec.GridSpec(2, 2, width_ratios=[4, 1], height_ratios=[3, 1], 
+                          wspace=0.0, hspace=0.0, left=0.07, right=0.97, top=0.96, bottom=0.08)
     ax_main = fig.add_subplot(gs[0, 0])
     ax_res  = fig.add_subplot(gs[1, 0], sharex=ax_main)
     ax_side = fig.add_subplot(gs[0, 1], sharey=ax_main)
@@ -86,7 +76,8 @@ def plot_age_feh_detailed(
     # Plot background tracks
     alpha_all = 0.15
     for i, (t, feh) in enumerate(GalGA.age_data):
-        t = np.asarray(t, float); feh = np.asarray(feh, float)
+        t = np.asarray(t, float)
+        feh = np.asarray(feh, float)
         age_gyr = (t[-1] - t) / 1e9
         if i == best_idx:
             best_age_gyr, best_feh = age_gyr.copy(), feh.copy()
@@ -94,6 +85,7 @@ def plot_age_feh_detailed(
         else:
             ax_main.plot(age_gyr, feh, '-', color='gray', lw=0.7, alpha=alpha_all, zorder=1)
 
+    # Observational data
     mJ = np.isfinite(age_Joyce) & np.isfinite(Fe_H)
     mB = np.isfinite(age_Bensby) & np.isfinite(Fe_H)
     ax_main.scatter(age_Joyce[mJ], Fe_H[mJ], marker='*', s=55, color='blue', alpha=0.7, zorder=6, label='Joyce (raw)')
@@ -114,6 +106,7 @@ def plot_age_feh_detailed(
     ax_main.plot(cB, mBm, color='orange', lw=2.0, zorder=7, label='Bensby (binned)')
     ax_main.errorbar(cB, mBm, yerr=mBs, color='orange', alpha=0.3, lw=1.0, capsize=3, zorder=6)
 
+    # Residuals using best model
     residuals = []
     idx = np.argsort(best_age_gyr)
     xs, ys = best_age_gyr[idx], best_feh[idx]
@@ -121,7 +114,8 @@ def plot_age_feh_detailed(
 
     rJ = f_best(age_Joyce[mJ]) - Fe_H[mJ]
     rB = f_best(age_Bensby[mB]) - Fe_H[mB]
-    vJ = np.isfinite(rJ); vB = np.isfinite(rB)
+    vJ = np.isfinite(rJ)
+    vB = np.isfinite(rB)
     ax_res.scatter(age_Joyce[mJ][vJ], rJ[vJ], marker='*', s=40, color='blue', alpha=0.8, label='Joyce residuals')
     ax_res.scatter(age_Bensby[mB][vB], rB[vB], marker='^', s=40, color='orange', alpha=0.8, label='Bensby residuals')
     residuals = np.concatenate([rJ[vJ], rB[vB]]) if (vJ.any() or vB.any()) else np.array([])
@@ -131,10 +125,12 @@ def plot_age_feh_detailed(
         s = np.nanstd(residuals)
         ax_res.set_ylim(-3*s, 3*s)
 
-    if feh_bins is None: feh_bins = np.linspace(-2.0, 1.0, 28)
+    if feh_bins is None:
+        feh_bins = np.linspace(-2.0, 1.0, 28)
 
     def smooth_hist(vals, bins, sigma=1.2):
-        v = np.asarray(vals, float); v = v[np.isfinite(v)]
+        v = np.asarray(vals, float)
+        v = v[np.isfinite(v)]
         c, e = np.histogram(v, bins=bins)
         c = gaussian_filter1d(c.astype(float), sigma, mode='nearest')
         c = c / c.max() if c.max() > 0 else c
@@ -144,12 +140,13 @@ def plot_age_feh_detailed(
     obs_ctr, obs_norm = smooth_hist(Fe_H[np.isfinite(Fe_H)], feh_bins, 1.2)
     ax_side.fill_betweenx(obs_ctr, 0, obs_norm, facecolor='none', hatch='///', edgecolor='blue', linewidth=3, alpha=1.0, label='Observed Fe/H')
     ax_side.fill_betweenx(obs_ctr, 0, obs_norm, facecolor='none', hatch='\\\\\\', edgecolor='orange', linewidth=4, alpha=1.0)
-    ax_side.plot(obs_norm, obs_ctr, lw=2, color ='blue')
-    ax_side.plot(obs_norm, obs_ctr, lw=1, color ='orange')
+    ax_side.plot(obs_norm, obs_ctr, lw=2, color='blue')
+    ax_side.plot(obs_norm, obs_ctr, lw=1, color='orange')
 
     # Side MDF: use the SAME best model index
     mx, my = GalGA.mdf_data[best_idx]
-    mx = np.asarray(mx, float); my = np.asarray(my, float)
+    mx = np.asarray(mx, float)
+    my = np.asarray(my, float)
     counts, edges = np.histogram(mx, bins=feh_bins, weights=my)
     counts = gaussian_filter1d(counts.astype(float), 1.2, mode='nearest')
     counts = counts / counts.max() if counts.max() > 0 else counts
@@ -157,111 +154,78 @@ def plot_age_feh_detailed(
     ax_side.fill_betweenx(ctr, 0, counts, color='red', alpha=0.20, label='Best model MDF')
     ax_side.plot(counts, ctr, color='red', lw=2, ls='--')
 
-
-    #ax_main.set_xlim(0, age_limit_gyr)
     ax_main.set_ylim(-2.0, 1.0)
     ax_main.set_ylabel('[Fe/H]', fontsize=14)
     ax_main.tick_params(axis='x', labelbottom=False)
     ax_main.legend(loc='upper left', fontsize=10, frameon=True)
 
-    ax_res.set_xlabel('Age (Gyr)', fontsize=14); ax_res.set_ylabel('Model − Obs [Fe/H]', fontsize=12)
-    #ax_res.set_xlim(0, age_limit_gyr); 
+    ax_res.set_xlabel('Age (Gyr)', fontsize=14)
+    ax_res.set_ylabel('Model − Obs [Fe/H]', fontsize=12)
     ax_res.legend(loc='upper left', fontsize=10, frameon=True)
 
-    ax_side.set_xlabel('Normalized counts', fontsize=12); ax_side.set_xlim(0, 1.15); ax_side.set_ylim(ax_main.get_ylim())
-    ax_side.yaxis.set_label_position('right'); ax_side.yaxis.tick_right()
+    ax_side.set_xlabel('Normalized counts', fontsize=12)
+    ax_side.set_xlim(0, 1.15)
+    ax_side.set_ylim(ax_main.get_ylim())
+    ax_side.yaxis.set_label_position('right')
+    ax_side.yaxis.tick_right()
     ax_side.tick_params(axis='y', labelright=True, labelleft=False, length=3)
     ax_side.legend(loc='lower right', fontsize=9, frameon=True)
 
-    plt.savefig(save_path, dpi=300, bbox_inches='tight'); plt.close(fig)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
     print(f"Saved: {save_path}")
     return fig
 
 
-
-def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None, metric_col: str = 'fitness'):
-
+def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=None, metric_col: str = 'fitness', best_idx = None):
+    """
+    Plot MDF curves with best model using unified matching.
+    
+    This function now uses the unified matching system to ensure the best model
+    is correctly identified and matched to walker tracks.
+    """
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "MDF_multiple_results.png")
 
-    # pick true best (both GalGA index and row index)
-    best_idx, best_row_idx = get_best_model_index(GalGA, results_df, primary=metric_col)
-    highlight_idx = best_idx if best_idx is not None and best_idx >= 0 else None
-
-    if results_df is not None and not results_df.empty:
-        best_row = results_df.loc[best_row_idx]
-        mapped_idx = map_row_to_model_index(GalGA, best_row)
-        if mapped_idx is not None and mapped_idx >= 0:
-            highlight_idx = mapped_idx
+    # Use unified matching to get best model
+    if best_idx is None:
+        best_idx, best_row = get_best_model_matched(GalGA, results_df, fitness_col=metric_col, verbose=True)
+    
+    if best_idx is None:
+        print("[WARNING] Could not match best model - using index 0")
+        best_idx = 0
 
     fig, (ax_main, ax_res) = plt.subplots(2, 1, figsize=(9, 8),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05})
 
-    # background curves (faint)
+    # Background curves (faint)
     n_all = len(GalGA.mdf_data)
     alpha = max(0.02, min(0.6, 8.0 / max(1, n_all)))
     for i, (x, y) in enumerate(GalGA.mdf_data):
-        if highlight_idx is not None and i == highlight_idx:
+        if i == best_idx:
             continue
         ax_main.plot(x, y, color="0.75", alpha=0.15 * alpha, lw=0.8, zorder=1)
 
-    # --- BEST curve via the SAME pipeline as posterior, on 2× grid ---
+    # Best model curve
     x_data = np.asarray(feh, float)
     y_data = np.asarray(normalized_count, float)
-    x_lo, x_hi = float(np.nanmin(x_data)), float(np.nanmax(x_data))
-    n_bins = x_data.size * 2  # keep double resolution
-
-    x_best = y_best = None
-
-    if results_df is not None and not results_df.empty:
-        single_df = ensure_model_indices(
-            GalGA,
-            results_df.loc[[best_row_idx]].copy(),
-            drop_missing=True,
-        )
-    else:
-        single_df = None
-
-    if single_df is not None and not single_df.empty:
-        single_w = np.ones(len(single_df), dtype=float)
-        best_ens = compute_mdf_ensemble(
-            GalGA,
-            single_df,
-            single_w,
-            feh_range=(x_lo, x_hi),
-            n_bins=n_bins,
-        )
-        if best_ens is not None:
-            x_best = np.asarray(best_ens['x'], dtype=float)
-            y_best = np.asarray(best_ens['median'], dtype=float)
-
-    if x_best is None or y_best is None:
-        if highlight_idx is not None and highlight_idx < len(GalGA.mdf_data):
-            x_raw, y_raw = GalGA.mdf_data[highlight_idx]
-            x_best = np.asarray(x_raw, dtype=float)
-            y_best = np.asarray(y_raw, dtype=float)
-
-    if x_best is None or y_best is None or x_best.size == 0 or y_best.size == 0:
-        if len(GalGA.mdf_data):
-            x_raw, y_raw = GalGA.mdf_data[0]
-            x_best = np.asarray(x_raw, dtype=float)
-            y_best = np.asarray(y_raw, dtype=float)
-        else:
-            return fig  # Nothing to draw; avoid downstream errors
-
-    order = np.argsort(x_best)
-    x_best = x_best[order]
-    y_best = y_best[order]
-
-    # peak-normalize to match posterior style
-    m = np.nanmax(y_best)
-    if np.isfinite(m) and m > 0:
-        y_best = y_best / m
-
-    # plot best curve on its native 2× grid  ✅
-    ax_main.plot(x_best, y_best, color="crimson", lw=1.8, label="Model", zorder=3)
-
-    # data
+    
+    if best_idx < len(GalGA.mdf_data):
+        x_best, y_best = GalGA.mdf_data[best_idx]
+        x_best = np.asarray(x_best, dtype=float)
+        y_best = np.asarray(y_best, dtype=float)
+        
+        # Sort and normalize
+        order = np.argsort(x_best)
+        x_best = x_best[order]
+        y_best = y_best[order]
+        m = np.nanmax(y_best)
+        if np.isfinite(m) and m > 0:
+            y_best = y_best / m
+        
+        ax_main.plot(x_best, y_best, color="crimson", lw=1.8, label="Model", zorder=3)
+    
+    # Data
     ax_main.plot(x_data, y_data, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4)
 
     ax_main.set_xlim(-2, 1)
@@ -272,27 +236,25 @@ def plot_mdf_curves(GalGA, feh, normalized_count, results_df=None, save_path=Non
     ax_main.set_xlabel("[Fe/H]")
     ax_main.tick_params(axis="x", bottom=False)
 
-    # residuals: evaluate best on DATA grid, then subtract  ✅
-    f_best_on_data = interp1d(x_best, y_best, kind="linear", bounds_error=False, fill_value=0.0)
-    y_model_on_data = f_best_on_data(x_data)
-    res = y_model_on_data - y_data
+    # Residuals
+    if best_idx < len(GalGA.mdf_data):
+        f_best_on_data = interp1d(x_best, y_best, kind="linear", bounds_error=False, fill_value=0.0)
+        y_model_on_data = f_best_on_data(x_data)
+        res = y_model_on_data - y_data
 
-    ax_res.axhline(0.0, ls="--", lw=1.0, color="black", alpha=0.7)
-    ax_res.plot(x_data, res, ".", ms=3.5)
-    s = np.nanstd(res)
-    if s > 0:
-        ax_res.set_ylim(-3*s, 3*s)
+        ax_res.axhline(0.0, ls="--", lw=1.0, color="black", alpha=0.7)
+        ax_res.plot(x_data, res, ".", ms=3.5)
+        s = np.nanstd(res)
+        if s > 0:
+            ax_res.set_ylim(-3*s, 3*s)
+    
     ax_res.set_xlabel("[Fe/H]")
     ax_res.set_ylabel("Model − data")
 
     fig.savefig(save_path, bbox_inches="tight", dpi=300)
     plt.close(fig)
-
-
-
-
-
-
+    print(f"Saved: {save_path}")
+    return fig
 
 
 def plot_four_panel_alpha(
@@ -305,18 +267,27 @@ def plot_four_panel_alpha(
     results_df=None,
     save_path=None,
     metric_col: str = 'fitness',
+    best_idx = None
 ):
-    import os, numpy as np, matplotlib.pyplot as plt
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-    if save_path is None: save_path = GalGA.output_path + 'Four_Panel_Alpha.png'
+    """
+    Plot four-panel alpha element abundances with best model using unified matching.
+    
+    This function now uses the unified matching system to ensure the best model
+    is correctly identified and matched to walker tracks.
+    """
+    if save_path is None:
+        save_path = GalGA.output_path + 'Four_Panel_Alpha.png'
 
     element_names = ['Mg', 'Si', 'Ca', 'Ti']
     observational_data = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
 
-    best_idx, _ = get_best_model_index(GalGA, results_df, primary=metric_col)
-    r = GalGA.results[best_idx]
-    best_params = (float(r[5]), float(r[7]), float(r[9]))
+    # Use unified matching to get best model
+    if best_idx is None:
+        best_idx, best_row = get_best_model_matched(GalGA, results_df, fitness_col=metric_col, verbose=True)
+    
+    if best_idx is None:
+        print("[WARNING] Could not match best model - using index 0")
+        best_idx = 0
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), sharex=False, sharey=False)
     fig.subplots_adjust(hspace=0.1, wspace=0.1, left=0.07, right=0.94, top=0.97, bottom=0.08)
@@ -326,11 +297,13 @@ def plot_four_panel_alpha(
     xbins = np.linspace(xlim[0], xlim[1], 36)
     ybins = np.linspace(ylim[0], ylim[1], 36)
 
-    def get_best_track(idx):
-        for alpha_arrs, res in zip(GalGA.alpha_data, GalGA.results):
-            params = (float(res[5]), float(res[7]), float(res[9]))
-            if params == best_params:
-                x = np.asarray(alpha_arrs[idx][0]); y = np.asarray(alpha_arrs[idx][1])
+    def get_best_track(element_idx):
+        """Get the best model track for a specific element."""
+        if best_idx < len(GalGA.alpha_data):
+            alpha_arrs = GalGA.alpha_data[best_idx]
+            if element_idx < len(alpha_arrs):
+                x = np.asarray(alpha_arrs[element_idx][0])
+                y = np.asarray(alpha_arrs[element_idx][1])
                 x, y = smooth_alpha_track_time_ordered(x, y, sigma=3)
                 return x, y
         return np.array([]), np.array([])
@@ -341,40 +314,55 @@ def plot_four_panel_alpha(
         row, col = divmod(idx, 2)
         ax = axes[row, col]
 
-        for alpha_arrs, res in zip(GalGA.alpha_data, GalGA.results):
-            x = np.asarray(alpha_arrs[idx][0]); y = np.asarray(alpha_arrs[idx][1])
-            x, y = smooth_alpha_track_time_ordered(x, y, sigma=3)
-            params = (float(res[5]), float(res[7]), float(res[9]))
-            if params == best_params: ax.plot(x, y, color="red", lw=2.5, zorder=3)
-            else: ax.plot(x, y, color='gray', alpha=0.03, lw=1.0, zorder=1)
+        # Plot all tracks with best highlighted
+        for i, alpha_arrs in enumerate(GalGA.alpha_data):
+            if idx < len(alpha_arrs):
+                x = np.asarray(alpha_arrs[idx][0])
+                y = np.asarray(alpha_arrs[idx][1])
+                x, y = smooth_alpha_track_time_ordered(x, y, sigma=3)
+                if i == best_idx:
+                    ax.plot(x, y, color="red", lw=2.5, zorder=3, label='Best model')
+                else:
+                    ax.plot(x, y, color='gray', alpha=0.03, lw=1.0, zorder=1)
 
+        # Observational data
         obs_y = np.asarray(obs_data, float)
         mask = np.isfinite(Fe_H) & np.isfinite(obs_y)
-        ax.scatter(Fe_H[mask], obs_y[mask], c='k', s=16, zorder=2, edgecolor='none')
+        ax.scatter(Fe_H[mask], obs_y[mask], c='k', s=16, zorder=2, edgecolor='none', label='Data')
 
-        ax.set_xlim(*xlim); ax.set_ylim(*ylim)
-        if col == 0: ax.set_ylabel(r"[$\alpha$/Fe]")
-        else: ax.set_ylabel(""); ax.tick_params(axis='y', labelleft=False)
-        if row == 1: ax.set_xlabel("[Fe/H]")
-        else: ax.tick_params(axis='x', labelbottom=False)
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        if col == 0:
+            ax.set_ylabel(r"[$\alpha$/Fe]")
+        else:
+            ax.set_ylabel("")
+            ax.tick_params(axis='y', labelleft=False)
+        if row == 1:
+            ax.set_xlabel("[Fe/H]")
+        else:
+            ax.tick_params(axis='x', labelbottom=False)
 
         ax.text(0.05, 0.95, element, transform=ax.transAxes, ha='left', va='top', fontsize=25, weight='bold',
                 bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7))
 
+        # Marginal histograms
         divider = make_axes_locatable(ax)
         ax_top = divider.append_axes("top", size="16%", pad=0.04, sharex=ax)
         ax_right = divider.append_axes("right", size="16%", pad=0.04, sharey=ax)
 
         ax_top.hist(Fe_H[mask], bins=xbins, density=True, histtype='step', lw=1.5, color='black')
         x_best, y_best = get_best_track(idx)
-        ax_top.hist(x_best[np.isfinite(x_best)], bins=xbins, density=True, histtype='step', lw=1.5, color='red')
+        if x_best.size > 0:
+            ax_top.hist(x_best[np.isfinite(x_best)], bins=xbins, density=True, histtype='step', lw=1.5, color='red')
 
         ax_right.hist(obs_y[mask], bins=ybins, density=True, histtype='step', lw=1.5, color='black', orientation='horizontal')
-        ax_right.hist(y_best[np.isfinite(y_best)], bins=ybins, density=True, histtype='step', lw=1.5, color='red', orientation='horizontal')
+        if y_best.size > 0:
+            ax_right.hist(y_best[np.isfinite(y_best)], bins=ybins, density=True, histtype='step', lw=1.5, color='red', orientation='horizontal')
 
         for axm in (ax_top, ax_right):
             axm.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-            for s in axm.spines.values(): s.set_visible(False)
+            for s in axm.spines.values():
+                s.set_visible(False)
 
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')

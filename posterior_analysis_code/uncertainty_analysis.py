@@ -30,6 +30,26 @@ warnings.filterwarnings('ignore')
 from plotting.style import *
 use_paper_style()
 
+
+PARAM_LABELS = {
+    "sigma_2":   r"$\sigma_2$",
+    "t_1":       r"$t_1$ [Gyr]",
+    "t_2":       r"$t_2$ [Gyr]",
+    "infall_1":  r"$\tau_1$ [Gyr]",
+    "infall_2":  r"$\tau_2$ [Gyr]",
+    "sfe":       r"SFE [Gyr$^{-1}$]",
+    "delta_sfe": r"$\Delta$SFE [Gyr$^{-1}$]",
+    "imf_upper": r"$M_{\max}$ [$M_\odot$]",
+    "mgal":      r"$M_{\mathrm{gal}}$ [$M_\odot$]",
+    "nb":        r"$N_{\rm Ia}/M_\odot$",
+}
+
+
+def param_label(name: str) -> str:
+    return PARAM_LABELS.get(name, name.replace("_", " "))
+
+
+
 def ensure_output_dirs(base_path):
     """Create necessary output directories under base_path/uncertainty"""
     os.makedirs(base_path, exist_ok=True)
@@ -187,7 +207,7 @@ class UncertaintyAnalysis:
                 ax.axvline(x_min, color='red', ls='--', lw=2, label=f'Median: {x_min:.4f}')
                 ax.set_xlim(x_min - 0.5, x_max + 0.5)
                 ax.set_yticks([])
-                ax.set_xlabel(param_labels.get(p, p))
+                ax.set_xlabel(PARAM_LABELS.get(p, p))
                 ax.grid(alpha=0.25)
                 ax.legend(fontsize=8, frameon=False)
                 continue
@@ -208,7 +228,7 @@ class UncertaintyAnalysis:
             ax.axvline(q16, color='orange', ls=':', alpha=0.85)
             ax.axvline(q84, color='orange', ls=':', alpha=0.85)
 
-            ax.set_xlabel(param_labels.get(p, p))
+            ax.set_xlabel(PARAM_LABELS.get(p, p))
             ax.set_ylabel('Density')
             ax.grid(alpha=0.25)
             ax.legend(fontsize=8, frameon=False)
@@ -328,7 +348,7 @@ class UncertaintyAnalysis:
                     ax.fill_between(xs, dens, alpha=0.25)
                     ax.set_yticks([])
                     ax.grid(alpha=0.2)
-                    ax.set_xlabel(pi)
+                    ax.set_xlabel(PARAM_LABELS.get(pi, pi))
                 else:
                     vj = top[pj].values
                     xg = np.linspace(vj.min(), vj.max(), 120)
@@ -336,8 +356,8 @@ class UncertaintyAnalysis:
                     Xg, Yg = np.meshgrid(xg, yg)
                     ZZ, thr = kde_2d(vj, vi, w, Xg, Yg)
                     ax.contour(Xg, Yg, ZZ, levels=thr, colors='k', linewidths=1.2)
-                    ax.set_xlabel(pj)
-                    ax.set_ylabel(pi)
+                    ax.set_xlabel(PARAM_LABELS.get(pj, pj))
+                    ax.set_ylabel(PARAM_LABELS.get(pi, pi))
                     ax.grid(alpha=0.15)
 
         #fig.suptitle(title + f' — Top {percentile}%', y=0.92, fontsize=14)
@@ -440,7 +460,7 @@ class UncertaintyAnalysis:
 
             # axis cosmetics
             ax.set_yticks([])
-            ax.set_xlabel(labels.get(p, p))
+            ax.set_xlabel(PARAM_LABELS.get(p, p))
             ax.grid(axis='x', alpha=0.25)
 
             # auto log if 68% span is very wide and values are positive
@@ -1280,9 +1300,23 @@ class UncertaintyAnalysis:
                 vmin, vmax, cmap = 0, np.nanmax(M), 'mako'
             else:  # axis_ratio
                 vmin, vmax, cmap = 1, np.nanmin([np.nanmax(M), 20]), 'viridis'
-            sns.heatmap(M, mask=mask, ax=ax, cmap=cmap, vmin=vmin, vmax=vmax,
-                        square=True, cbar_kws={'shrink':0.8},
-                        xticklabels=params, yticklabels=params, linewidths=0.3, linecolor='w')
+
+            labels = [param_label(p) for p in params]
+
+            sns.heatmap(
+                M,
+                mask=mask,
+                ax=ax,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                square=True,
+                cbar_kws={'shrink': 0.8},
+                xticklabels=labels,
+                yticklabels=labels,
+                linewidths=0.3,
+                linecolor='w'
+            )
             #ax.set_title(f'{name} — Top {percentile}%')
             plt.tight_layout()
             out = os.path.join(self.output_path, f'degeneracy_{name}.png')
@@ -1290,6 +1324,7 @@ class UncertaintyAnalysis:
             plt.close(fig)
             paths[name] = out
             print(f"{name} heatmap: {out}")
+
 
         return paths
 
@@ -1335,8 +1370,16 @@ class UncertaintyAnalysis:
         explained = evals / np.sum(evals)
         cum_explained = np.cumsum(explained)
 
-        # scree
+        # screen
         fig, ax = plt.subplots(figsize=(6, 6))
+
+        # force y-axis to left side
+        ax.yaxis.set_label_position("right")
+        ax.yaxis.tick_right()
+        ax.yaxis.set_ticks_position('right')
+        #ax.spines['left'].set_visible(False)
+        ax.spines['right'].set_visible(True)
+
         ax.plot(np.arange(1, len(evals)+1), explained, marker='o')
         ax.set_xlabel('Principal component')
         ax.set_ylabel('Explained variance ratio')
@@ -1347,12 +1390,20 @@ class UncertaintyAnalysis:
 
         # loadings DataFrame (columns = PCs, rows = params)
         k = min(n_loadings, len(params))
-        loadings_full = pd.DataFrame(evecs, index=params, columns=[f'PC{i+1}' for i in range(len(evals))])
+        loadings_full = pd.DataFrame(
+            evecs,
+            index=params,
+            columns=[f'PC{i+1}' for i in range(len(evals))]
+        )
         loadings = loadings_full.iloc[:, :k]
+
+        # apply LaTeX labels to the plotted loadings (rows = parameters)
+        pretty_labels = [param_label(p) for p in params]
+        loadings.index = pretty_labels
 
         plt.clf()
         # heatmap with a colorbar that's flush and same height
-        fig, ax = plt.subplots(figsize=(5,5))
+        fig, ax = plt.subplots(figsize=(5, 5))
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.0)  # no whitespace
 
@@ -1373,6 +1424,7 @@ class UncertaintyAnalysis:
         plt.tight_layout()
         loadings_path = os.path.join(self.output_path, 'pca_loadings.png')
         plt.savefig(loadings_path, dpi=300, bbox_inches='tight'); plt.close(fig)
+
 
         # diagnostics for summary
         cond = float(np.sqrt(np.max(evals) / max(np.min(evals), 1e-30)))
@@ -1522,13 +1574,6 @@ class UncertaintyAnalysis:
         # also return the new path in the first return dict
         paths_grouped = {'scree': scree_path, 'loadings': loadings_path, 'grouped_loadings': group_loadings_path}
 
-
-
-
-
-
-
-
         return {'scree': scree_path, 'loadings': loadings_path}, {
             'eigenvalues': evals,
             'explained_ratio': explained,
@@ -1536,6 +1581,8 @@ class UncertaintyAnalysis:
             'mean': mu,
             'std': sig
         }
+
+
 
 
     def plot_corner_with_marginals(

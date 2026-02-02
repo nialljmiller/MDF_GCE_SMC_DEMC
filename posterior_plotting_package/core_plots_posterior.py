@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import argparse
 import numpy as np
@@ -12,13 +13,36 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import corner
 from scipy.ndimage import gaussian_filter   
 
-# Import posterior utilities
-from posterior_plotting_package.posterior_utils import *
+# Import unified matching utilities
+from matching_utils import (
+    get_best_model_matched,
+    get_matched_posterior_samples,
+    match_dataframe_to_models,
+)
 
-from posterior_plotting_package.posterior_utils_density import * #plot_density_posterior_simple, plot_density_posterior_simple_vertical
+# Import posterior utilities for ensemble computation
+from posterior_plotting_package.posterior_utils import (
+    compute_mdf_ensemble,
+    compute_age_feh_ensemble,
+    compute_alpha_ensemble,
+    interpolate_to_common_grid,
+    compute_percentile_bands,
+    weighted_quantile,
+    compute_weights,
+    posterior_resample,
+)
+
+
+
+
+from posterior_plotting_package.posterior_utils_density import (
+    plot_density_posterior_simple,
+    plot_density_posterior_simple_vertical
+)
 
 from plotting.style import *
 use_paper_style()
+
 
 def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     mask = np.isfinite(x_data) & np.isfinite(y_data)
@@ -27,7 +51,6 @@ def smooth_alpha_track_time_ordered(x_data, y_data, sigma=3):
     if len(x) < 10:
         return x_data, y_data
     return gaussian_filter1d(x, sigma=sigma, mode='nearest'), gaussian_filter1d(y, sigma=sigma, mode='nearest')
-
 
 
 def post_plot_mdf_curves(
@@ -39,16 +62,16 @@ def post_plot_mdf_curves(
     use_posterior=True,
     percentile=10,
 ):
-    if percentile == -1:
-        percentile = choose_cutoff_lognorm_mixture(
-            results_df["fitness"].values,
-            bins=100, kde_points=1024, em_max_iter=200, tol=1e-6
-        )
-
+    """
+    Plot MDF curves with posterior uncertainty using unified matching.
+    
+    This function now uses the unified matching system to ensure all posterior
+    samples are correctly matched to walker tracks.
+    """
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "MDF_posterior.png")
 
-    # --- observed MDF (sorted, finite) ---
+    # Observed MDF (sorted, finite)
     feh = np.asarray(feh, float)
     normalized_count = np.asarray(normalized_count, float)
     m = np.isfinite(feh) & np.isfinite(normalized_count)
@@ -56,41 +79,20 @@ def post_plot_mdf_curves(
     x_data = feh[m][idx]
     y_data = normalized_count[m][idx]
 
-    # --- posterior draws (systematic resampling) ---
     draw_df, draw_w = posterior_resample(
         results_df,
-        weight_col="posterior_w",
         fitness_col="fitness",
+        weight_col="posterior_w",
         percentile=percentile,
-        resampling="systematic",
+        n_draws=1024,
     )
 
-    draw_df = ensure_model_indices(GalGA, draw_df)
-    if draw_df is None or draw_df.empty:
-        return None
 
-    draw_w = np.asarray(draw_w, dtype=float)
-    if draw_w.size != len(draw_df):
-        draw_w = draw_w[:len(draw_df)]
-
-    valid = np.isfinite(draw_df["model_idx"].to_numpy(dtype=float))
-    if not valid.any():
-        print("[warn] No posterior draws mapped to stored MDF tracks; skipping posterior MDF plot.")
-        return None
-
-    draw_df = draw_df.loc[valid].reset_index(drop=True)
-    draw_w = draw_w[valid]
-    s = draw_w.sum()
-    if s <= 0 or not np.isfinite(s):
-        draw_w = np.ones(len(draw_df), dtype=float) / len(draw_df)
-    else:
-        draw_w = draw_w / s
-
-    # --- common x grid tied to data support ---
+    # Common x grid tied to data support
     n_bins = x_data.size * 2
     x_lo, x_hi = float(x_data.min()), float(x_data.max())
 
-    # compute posterior ensemble from actual draws (no parametric shape assumptions)
+    # Compute posterior ensemble from matched draws
     ens = compute_mdf_ensemble(
         GalGA,
         draw_df,
@@ -99,34 +101,30 @@ def post_plot_mdf_curves(
         n_bins=n_bins
     )
 
-    if ens is None:
-        print("[warn] Unable to build posterior MDF ensemble; skipping plot.")
-        return None
-
     x_common = ens["x"]
     y_med = ens["median"]
     y_lo = ens["lower"]
     y_hi = ens["upper"]
 
-    # put DATA onto the same grid (linear interp, no smoothing)
+    # Put DATA onto the same grid
     f_data_on_common = interp1d(
         x_data, y_data, kind="linear", bounds_error=False, fill_value=np.nan
     )
     y_data_common = f_data_on_common(x_common)
 
-    # --- figure: main + residuals ---
+    # Figure: main + residuals
     fig, (ax_main, ax_res) = plt.subplots(
         2, 1, figsize=(9, 8),
         gridspec_kw={"height_ratios": [3, 1], "hspace": 0.05}
     )
 
-    # posterior band (credible region from real draws)
+    # Posterior band
     plot_density_posterior_simple(
         ax_main, x_common, y_med, y_lo, y_hi,
         color="crimson", n_levels=20, zorder=2, label="1σ posterior"
     )
 
-    # observed points
+    # Observed points
     ax_main.plot(
         x_data, y_data, "x", color="k", ms=4.5, mew=0.9, label="Data", zorder=4
     )
@@ -139,7 +137,7 @@ def post_plot_mdf_curves(
     ax_main.set_xlabel("[Fe/H]")
     ax_main.tick_params(axis="x", bottom=False)
 
-    # residual posterior (model − data), same draws, same grid
+    # Residual posterior
     r_med = y_med - y_data_common
     r_lo  = y_lo  - y_data_common
     r_hi  = y_hi  - y_data_common
@@ -153,7 +151,7 @@ def post_plot_mdf_curves(
     ax_res.set_xlabel("[Fe/H]")
 
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-    fig.savefig(save_path, bbox_inches="tight")
+    fig.savefig(save_path, bbox_inches="tight", dpi=300)
     plt.close(fig)
     print(f"Saved: {save_path}")
     return fig
@@ -172,23 +170,22 @@ def post_plot_age_feh_detailed(
     use_posterior=True,
     percentile=10,
 ):
-    # percentile via mixture cutoff (if requested)
-    if percentile == -1:
-        percentile = choose_cutoff_lognorm_mixture(
-            results_df["fitness"].values,
-            bins=100, kde_points=1024, em_max_iter=200, tol=1e-6
-        )
-
+    """
+    Plot age-metallicity relation with posterior uncertainty using unified matching.
+    
+    This function now uses the unified matching system to ensure all posterior
+    samples are correctly matched to walker tracks.
+    """
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "Age_Metallicity_posterior.png")
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
 
-    # sanitize obs arrays
+    # Sanitize obs arrays
     Fe_H = np.asarray(Fe_H, float)
     age_Joyce = np.asarray(age_Joyce, float)
     age_Bensby = np.asarray(age_Bensby, float)
 
-    # figure: main + residuals + side histogram
+    # Figure: main + residuals + side histogram
     fig = plt.figure(figsize=(18, 11))
     gs = gridspec.GridSpec(
         2, 2,
@@ -201,33 +198,33 @@ def post_plot_age_feh_detailed(
     ax_res  = fig.add_subplot(gs[1, 0], sharex=ax_main)
     ax_side = fig.add_subplot(gs[0, 1], sharey=ax_main)
 
-    # posterior draws from actual samples (systematic resampling)
     top_df, weights = posterior_resample(
         results_df,
-        weight_col="posterior_w",
         fitness_col="fitness",
+        weight_col="posterior_w",
         percentile=percentile,
-        resampling="systematic",
+        n_draws=1024,
     )
 
-    # age–[Fe/H] ensemble on a common age grid
+    # Age–[Fe/H] ensemble on a common age grid
     ens = compute_age_feh_ensemble(
         GalGA, top_df, weights,
         age_range=(0.0, age_limit_gyr),
         n_bins=200
     )
+    
     age_common = ens["x"]
     feh_med    = ens["median"]
     feh_lo     = ens["lower"]
     feh_hi     = ens["upper"]
 
-    # posterior credible band (sample-based; no analytic shape assumption)
+    # Posterior credible band
     plot_density_posterior_simple(
         ax_main, age_common, feh_med, feh_lo, feh_hi,
         color="crimson", n_levels=20, zorder=4, label="1σ posterior"
     )
 
-    # observations (raw)
+    # Observations (raw)
     mask_J = np.isfinite(age_Joyce) & np.isfinite(Fe_H)
     mask_B = np.isfinite(age_Bensby) & np.isfinite(Fe_H)
     ax_main.scatter(age_Joyce[mask_J], Fe_H[mask_J], marker="*", s=55,
@@ -235,7 +232,7 @@ def post_plot_age_feh_detailed(
     ax_main.scatter(age_Bensby[mask_B], Fe_H[mask_B], marker="^", s=55,
                     color="orange", alpha=0.7, zorder=6, label="Bensby et al. (raw)")
 
-    # binned curves + error bars for each dataset
+    # Binned curves + error bars
     def _binned(age, feh, bins):
         m = np.isfinite(age) & np.isfinite(feh)
         means, _, _ = binned_statistic(age[m], feh[m], statistic="mean", bins=bins)
@@ -256,7 +253,7 @@ def post_plot_age_feh_detailed(
     ax_main.plot(Bc, Bm, color="orange", lw=2.5, zorder=7, label="Bensby (binned)")
     ax_main.errorbar(Bc, Bm, yerr=Bs, color="orange", alpha=0.3, lw=1.0, capsize=3, zorder=6)
 
-    # residuals vs posterior median
+    # Residuals vs posterior median
     def _interp_clean(x, y):
         idx = np.argsort(x)
         xs, ys = x[idx], y[idx]
@@ -288,7 +285,7 @@ def post_plot_age_feh_detailed(
     s = np.nanstd(res)
     ax_res.set_ylim(-max(0.5, 3.0 * s), +max(0.5, 3.0 * s))
 
-    # side panel: Fe/H distributions + MDF posterior from the SAME draws
+    # Side panel: Fe/H distributions + MDF posterior
     if feh_bins is None:
         feh_bins = np.linspace(-2.0, 1.0, 28)
 
@@ -310,25 +307,30 @@ def post_plot_age_feh_detailed(
                           edgecolor="blue", linewidth=0, alpha=1.0, label="Observed Fe/H")
     ax_side.plot(norm_counts, centers_obs, color="green", lw=2)
 
+    # MDF ensemble from SAME matched draws
     mdf_ens = compute_mdf_ensemble(
         GalGA, top_df, weights,
         feh_range=(-2.0, 1.0), n_bins=50
     )
-    centers = 0.5 * (feh_bins[:-1] + feh_bins[1:])
-    med = np.interp(centers, mdf_ens["x"], mdf_ens["median"], left=0, right=0)
-    lo  = np.interp(centers, mdf_ens["x"], mdf_ens["lower"],  left=0, right=0)
-    hi  = np.interp(centers, mdf_ens["x"], mdf_ens["upper"],  left=0, right=0)
+    
+    if mdf_ens is not None:
+        centers = 0.5 * (feh_bins[:-1] + feh_bins[1:])
+        med = np.interp(centers, mdf_ens["x"], mdf_ens["median"], left=0, right=0)
+        lo  = np.interp(centers, mdf_ens["x"], mdf_ens["lower"],  left=0, right=0)
+        hi  = np.interp(centers, mdf_ens["x"], mdf_ens["upper"],  left=0, right=0)
 
-    s = med.max() if np.isfinite(med).any() else 1.0
-    if s > 0:
-        med /= s; lo /= s; hi /= s
+        s = med.max() if np.isfinite(med).any() else 1.0
+        if s > 0:
+            med /= s
+            lo /= s
+            hi /= s
 
-    ax_side.fill_betweenx(centers, lo, hi, color="crimson", alpha=0.18, label="MDF 1σ posterior")
-    ax_side.plot(med, centers, color="crimson", lw=2, ls="--", label="Median MDF")
+        ax_side.fill_betweenx(centers, lo, hi, color="crimson", alpha=0.18, label="MDF 1σ posterior")
+        ax_side.plot(med, centers, color="crimson", lw=2, ls="--", label="Median MDF")
 
-    # cosmetics
+    # Cosmetics
     ax_main.set_ylabel("[Fe/H]")
-    ax_main.set_xlabel("")  # x on top panel suppressed; residuals carry x label
+    ax_main.set_xlabel("")
     ax_main.legend(loc="best", fontsize=10)
     ax_res.set_xlabel("Age (Gyr)")
     ax_res.set_ylabel("Model − Data")
@@ -348,12 +350,6 @@ def post_plot_age_feh_detailed(
     return fig
 
 
-
-
-
-
-
-
 def post_plot_four_panel_alpha(
     GalGA,
     Fe_H,
@@ -366,19 +362,17 @@ def post_plot_four_panel_alpha(
     use_posterior=True,
     percentile=10,
 ):
-    if percentile == -1:
-        percentile = choose_cutoff_lognorm_mixture(
-            results_df["fitness"].values, bins=100, kde_points=1024, em_max_iter=200, tol=1e-6
-        )
-
+    """
+    Plot four-panel alpha abundances with posterior uncertainty using unified matching.
+    
+    This function now uses the unified matching system to ensure all posterior
+    samples are correctly matched to walker tracks.
+    """
     if save_path is None:
         save_path = os.path.join(GalGA.output_path, "Four_Panel_Alpha_Posterior.png")
 
     element_names = ["Mg", "Si", "Ca", "Ti"]
     observational_data = [Mg_Fe, Si_Fe, Ca_Fe, Ti_Fe]
-
-
-
 
     fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(16, 12), sharex=False, sharey=False)
     fig.subplots_adjust(hspace=0.1, wspace=0.1, left=0.07, right=0.94, top=0.97, bottom=0.08)
@@ -390,118 +384,88 @@ def post_plot_four_panel_alpha(
 
     Fe_H = np.asarray(Fe_H, float)
 
+    top_df, weights = posterior_resample(
+        results_df,
+        fitness_col="fitness",
+        weight_col="posterior_w",
+        percentile=percentile,
+        n_draws=1024,
+    )
+
     for idx, (element, obs_data) in enumerate(zip(element_names, observational_data)):
         row, col = divmod(idx, 2)
         ax_main = axes[row, col]
 
-        # real posterior draws via systematic resampling
-        top_df, weights = posterior_resample(
-            results_df,
-            weight_col="posterior_w",
-            fitness_col="fitness",
-            percentile=percentile,
-            resampling="systematic",
-        )
-
-        # α–Fe ensemble on common Fe/H grid
+        # Compute alpha ensemble for this element using matched samples
         ens = compute_alpha_ensemble(
-            GalGA,
-            top_df,
-            weights,
+            GalGA, top_df, weights,
             element_idx=idx,
             feh_range=xlim,
-            n_bins=150,
-        )
-        feh_common   = ens["x"]
-        median_alpha = ens["median"]
-        lower_alpha  = ens["lower"]
-        upper_alpha  = ens["upper"]
-
-        # posterior band (sample-based; no parametric shape)
-        plot_density_posterior_simple(
-            ax_main, feh_common, median_alpha, lower_alpha, upper_alpha,
-            color="crimson", n_levels=20, zorder=2, label="1σ posterior"
+            n_bins=100
         )
 
+        if ens is not None:
+            # Plot posterior band
+            plot_density_posterior_simple(
+                ax_main, ens["x"], ens["median"], ens["lower"], ens["upper"],
+                color="crimson", n_levels=20, zorder=3, label="1σ posterior"
+            )
 
-
-
-
-
-        # observations
-        obs_data = np.asarray(obs_data, float)
-        obs_y = np.where((obs_data >= ylim[0]) & (obs_data <= ylim[1]), obs_data, np.nan)
+        # Observational data
+        obs_y = np.asarray(obs_data, float)
         mask = np.isfinite(Fe_H) & np.isfinite(obs_y)
+        ax_main.scatter(Fe_H[mask], obs_y[mask], c='k', s=16, zorder=4, edgecolor='none', label='Data')
 
-        # --- NEW: posterior point samples (match N to observations for fair hist compare)
-        Nobs = int(np.count_nonzero(mask))
-        Nx = max(200, Nobs)   # allow a small floor so the red hist isn’t too jaggy
-        post_x, post_y = sample_posterior_points(GalGA, top_df, weights, idx, Nx, feh_range=xlim)
-
-        # main scatter: keep your observed points
-        if Nobs > 5:
-            ax_main.scatter(Fe_H[mask], obs_y[mask], c='k', s=16, zorder=3, edgecolor='none')
-
-
-
-
-        # axes setup
         ax_main.set_xlim(*xlim)
         ax_main.set_ylim(*ylim)
         if col == 0:
             ax_main.set_ylabel(r"[$\alpha$/Fe]")
         else:
             ax_main.set_ylabel("")
-            ax_main.tick_params(axis="y", labelleft=False)
+            ax_main.tick_params(axis='y', labelleft=False)
         if row == 1:
             ax_main.set_xlabel("[Fe/H]")
         else:
-            ax_main.tick_params(axis="x", labelbottom=False)
+            ax_main.tick_params(axis='x', labelbottom=False)
 
-        # element tag
-        ax_main.text(
-            0.05, 0.95, element, transform=ax_main.transAxes,
-            ha="left", va="top", fontsize=25, weight="bold",
-            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7)
-        )
+        ax_main.text(0.05, 0.95, element, transform=ax_main.transAxes, ha='left', va='top', 
+                    fontsize=25, weight='bold',
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7))
 
-        # marginals (top/right)
+        # Marginal histograms
         divider = make_axes_locatable(ax_main)
-        ax_top   = divider.append_axes("top",   size="16%", pad=0.04, sharex=ax_main)
+        ax_top = divider.append_axes("top", size="16%", pad=0.04, sharex=ax_main)
         ax_right = divider.append_axes("right", size="16%", pad=0.04, sharey=ax_main)
 
-        feh_grid = feh_common
-        med = median_alpha
-        lo  = lower_alpha
-        hi  = upper_alpha
+        # Data histograms
+        ax_top.hist(Fe_H[mask], bins=xbins, density=True, histtype='step', lw=1.5, color='black')
+        ax_right.hist(obs_y[mask], bins=ybins, density=True, histtype='step', lw=1.5, 
+                     color='black', orientation='horizontal')
 
-        # normalize curves for marginals (scale-only)
-        med_n = med / np.nanmax(np.abs(med))
-        lo_n  = lo  / np.nanmax(np.abs(lo))
-        hi_n  = hi  / np.nanmax(np.abs(hi))
+        # Model histograms from posterior median
+        if ens is not None:
+            feh_model = ens["x"]
+            alpha_model = ens["median"]
+            valid = np.isfinite(feh_model) & np.isfinite(alpha_model)
+            if valid.any():
+                ax_top.hist(feh_model[valid], bins=xbins, density=True, histtype='step', 
+                           lw=1.5, color='red')
+                ax_right.hist(alpha_model[valid], bins=ybins, density=True, histtype='step', 
+                             lw=1.5, color='red', orientation='horizontal')
 
-
-
-        # TOP: Fe/H hist (observed vs posterior)
-        ax_top.hist(Fe_H[mask], bins=xbins, density=True, histtype="step", lw=1.5, color="black", label="Observed")
-        ax_top.hist(post_x[np.isfinite(post_x)], bins=xbins, density=True, histtype="step", lw=1.5, color="crimson", label="Posterior")
-
-        # RIGHT: [α/Fe] hist (observed vs posterior)
-        ax_right.hist(obs_y[mask], bins=ybins, density=True, histtype="step", lw=1.5, color="black", orientation="horizontal")
-        ax_right.hist(post_y[np.isfinite(post_y)], bins=ybins, density=True, histtype="step", lw=1.5, color="crimson", orientation="horizontal")
-
-
-        # tidy marginals
         for axm in (ax_top, ax_right):
             axm.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
             for s in axm.spines.values():
                 s.set_visible(False)
 
-    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-    plt.savefig(save_path, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Four-panel alpha plot with posterior saved to {save_path}")
+        if idx == 0:
+            ax_main.legend(loc='upper right', fontsize=9, frameon=True)
 
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Four-panel alpha posterior plot saved to {save_path}")
+    return fig
 
 
 
