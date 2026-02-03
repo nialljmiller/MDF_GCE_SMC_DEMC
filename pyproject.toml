@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdf_gce"
+version = "1.0.0"
+description = "Metallicity Distribution Function fitting via GA + SMC-DEMC for Galactic Chemical Evolution"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "N. Miller", email = "nmiller@example.edu"},
+]
+keywords = [
+    "galactic chemical evolution",
+    "metallicity distribution function",
+    "genetic algorithm",
+    "MCMC",
+    "astrophysics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+dependencies = [
+    "numpy>=1.20",
+    "scipy>=1.7",
+    "pandas>=1.3",
+    "matplotlib>=3.4",
+    "corner>=2.2",
+    "deap>=1.3",
+    "seaborn>=0.11",
+    "scikit-learn>=0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=3.0",
+    "black>=22.0",
+    "isort>=5.0",
+    "flake8>=4.0",
+    "mypy>=0.950",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+    "myst-parser>=0.18",
+]
+
+[project.scripts]
+mdf-ga = "mdf_gce.scripts.run_ga:main"
+mdf-analyze = "mdf_gce.scripts.analyze:main"
+mdf-plot = "mdf_gce.scripts.plot:main"
+
+[project.urls]
+Homepage = "https://github.com/user/MDF_GCE_SMC_DEMC"
+Documentation = "https://github.com/user/MDF_GCE_SMC_DEMC#readme"
+Repository = "https://github.com/user/MDF_GCE_SMC_DEMC"
+Issues = "https://github.com/user/MDF_GCE_SMC_DEMC/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mdf_gce*"]
+
+[tool.setuptools.package-data]
+mdf_gce = ["*.txt", "*.dat"]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | build
+    | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["mdf_gce"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=mdf_gce --cov-report=term-missing"
