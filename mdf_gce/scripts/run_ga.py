@@ -139,11 +139,9 @@ def main():
     
     # Validate
     popsize = config.get('popsize', 96)
-
     if popsize < 0:
         popsize = int(cpu_count() * (popsize * -1))
 
-    
     generations = config.get('generations', 256)
     
     if popsize < 10:

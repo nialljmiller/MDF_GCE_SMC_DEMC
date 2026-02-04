@@ -34,6 +34,11 @@ from mdf_gce.core.loss import (
 from mdf_gce.core.constraints import apply_physics_penalty
 from mdf_gce.core.exploration import voronoi_explore_dearths
 
+# Defer io import to avoid circular dependency
+def _get_io_module():
+    from mdf_gce.io import save_complete_results, ResultsLoader
+    return save_complete_results, ResultsLoader
+
 # JINAPyCEE import - expected in parent directory or installed
 try:
     from JINAPyCEE import omega_plus
@@ -267,6 +272,7 @@ class GalacticEvolutionGA:
         self.gen = 0
         self.num_generations = 0
         self.physics_timer = 0
+        self.evaluation_counter = 0  # For tracking evaluations in ga_population_samples.csv
         
         # Parameter indices
         self.categorical_indices = [0, 1, 2, 3, 4]
@@ -296,6 +302,32 @@ class GalacticEvolutionGA:
         
         # Print configuration
         self._print_config()
+
+
+
+    def _has_obs_age_data(self) -> bool:
+        """True if obs_age_data exists and contains usable data."""
+        if not hasattr(self, "obs_age_data"):
+            return False
+
+        obs = self.obs_age_data
+        if obs is None:
+            return False
+
+        # If it's a pandas DataFrame
+        if isinstance(obs, pd.DataFrame):
+            return not obs.empty
+
+        # If it's a dict-like container
+        if isinstance(obs, dict):
+            return len(obs) > 0
+
+        # Fallback: do not assume truthiness for unknown types
+        return True
+
+
+
+
     
     def _compute_bounds(self) -> None:
         """Compute parameter bounds for continuous parameters."""
@@ -479,7 +511,6 @@ class GalacticEvolutionGA:
             self.demc_workers = population_size
         
         # Create population
-        print(population_size)
         population = toolbox.population(n=population_size)
         
         print(f"Initialized population: {population_size} individuals")
@@ -817,7 +848,10 @@ class GalacticEvolutionGA:
             individual[i] = self._reflect_at_bounds(individual[i], lo, hi)
     
     def _record_evaluation_result(self, result: Dict) -> None:
-        """Record evaluation result."""
+        """Record evaluation result with generation and evaluation count."""
+        result['generation'] = self.gen
+        result['evaluation'] = self.evaluation_counter
+        self.evaluation_counter += 1
         self.evaluation_results.append(result)
     
     # =========================================================================
@@ -875,9 +909,11 @@ class GalacticEvolutionGA:
         elapsed = time.time() - total_start
         print(f"\nGA completed in {elapsed:.1f}s")
         
-        # Export results
+        # Export results (full set of outputs matching old format)
         self.export_ga_samples()
         self.save_results()
+        self.save_posteriors()
+        self.save_history_with_loss()
         
         gc.collect()
     
@@ -1070,12 +1106,35 @@ class GalacticEvolutionGA:
     # =========================================================================
     
     def save_results(self) -> None:
-        """Save final results to CSV."""
+        """
+        Save final results with complete curve data.
+        
+        Outputs:
+        - final_results.csv + final_curves.npz: FULLY LINKED by model_id
+        - simulation_results.csv: Sorted/deduplicated summary (no curve linkage)
+        
+        For post-hoc plotting, use final_results.csv + final_curves.npz
+        """
         if not self.evaluation_results:
             print("No results to save")
             return
         
-        # Build dataframe from evaluation results
+        # === PRIMARY OUTPUT: Linked results + curves ===
+        # Use new io module for complete saves with model_id linkage
+        try:
+            save_complete_results, _ = _get_io_module()
+            save_complete_results(
+                self.evaluation_results,
+                self.output_path,
+                prefix='final_',
+                save_curves=True,
+            )
+            print("  → final_results.csv + final_curves.npz are LINKED by model_id")
+        except ImportError:
+            pass
+        
+        # === SECONDARY OUTPUT: Traditional sorted/deduplicated CSV ===
+        # This is for quick inspection but NOT linked to curves
         rows = []
         for r in self.evaluation_results:
             if 'individual' not in r:
@@ -1107,7 +1166,8 @@ class GalacticEvolutionGA:
         
         output_file = os.path.join(self.output_path, 'simulation_results.csv')
         df.to_csv(output_file, index=False)
-        print(f"Saved {len(df)} results to {output_file}")
+        print(f"Saved {len(df)} unique results to {output_file}")
+        print("  → simulation_results.csv is sorted/deduplicated (NOT linked to curves)")
         
         # Also save best model info
         if len(df) > 0:
@@ -1118,44 +1178,172 @@ class GalacticEvolutionGA:
                     print(f"  {col}: {best[col]}")
     
     def save_partial_results(self, gen: int) -> None:
-        """Save intermediate results."""
+        """Save intermediate results including curves."""
         if not self.evaluation_results:
             return
         
-        rows = []
-        for r in self.evaluation_results:
-            if 'individual' not in r:
-                continue
-            ind = r['individual']
-            row = {
-                'comp_idx': int(ind[0]),
-                'imf_idx': int(ind[1]),
-                'sn1a_idx': int(ind[2]),
-                'sy_idx': int(ind[3]),
-                'sn1ar_idx': int(ind[4]),
-                'sigma_2': ind[5],
-                't_1': ind[6],
-                't_2': ind[7],
-                'infall_1': ind[8],
-                'infall_2': ind[9],
-                'sfe': ind[10],
-                'delta_sfe': ind[11],
-                'imf_upper': ind[12],
-                'mgal': ind[13],
-                'nb': ind[14],
-                'fitness': r.get('fitness', float('inf')),
-            }
-            rows.append(row)
+        # Use new io module for complete saves
+        try:
+            save_complete_results, _ = _get_io_module()
+            save_complete_results(
+                self.evaluation_results,
+                self.output_path,
+                prefix=f'gen{gen}_',
+                save_curves=True,
+            )
+        except ImportError:
+            # Fallback to basic CSV
+            rows = []
+            for r in self.evaluation_results:
+                if 'individual' not in r:
+                    continue
+                ind = r['individual']
+                row = {
+                    'comp_idx': int(ind[0]),
+                    'imf_idx': int(ind[1]),
+                    'sn1a_idx': int(ind[2]),
+                    'sy_idx': int(ind[3]),
+                    'sn1ar_idx': int(ind[4]),
+                    'sigma_2': ind[5],
+                    't_1': ind[6],
+                    't_2': ind[7],
+                    'infall_1': ind[8],
+                    'infall_2': ind[9],
+                    'sfe': ind[10],
+                    'delta_sfe': ind[11],
+                    'imf_upper': ind[12],
+                    'mgal': ind[13],
+                    'nb': ind[14],
+                    'fitness': r.get('fitness', float('inf')),
+                }
+                rows.append(row)
+            
+            df = pd.DataFrame(rows)
+            df = df.sort_values('fitness', ascending=True)
+            
+            output_file = os.path.join(self.output_path, f'simulation_results_gen{gen}.csv')
+            df.to_csv(output_file, index=False)
+            print(f"Saved intermediate results to {output_file}")
         
-        df = pd.DataFrame(rows)
-        df = df.sort_values('fitness', ascending=True)
+        # Optionally generate plots
+        if hasattr(self, 'plot_mode') and self.plot_mode != 'none':
+            self.generate_plots(gen)
+    
+    def generate_plots(self, gen: Optional[int] = None) -> None:
+        """
+        Generate paper-quality plots from current results.
         
-        output_file = os.path.join(self.output_path, f'simulation_results_gen{gen}.csv')
-        df.to_csv(output_file, index=False)
-        print(f"Saved intermediate results to {output_file}")
+        Parameters
+        ----------
+        gen : int, optional
+            Generation number (for labeling)
+        """
+        if not self.evaluation_results:
+            print("No results to plot")
+            return
+        
+        try:
+            from mdf_gce.plotting.paper_plots import (
+                plot_mdf_posterior,
+                plot_amr_posterior,
+                plot_alpha_posterior,
+                plot_corner_posterior,
+                compute_posterior_weights,
+            )
+        except ImportError as e:
+            print(f"Could not import plotting module: {e}")
+            return
+        
+        # Build dataframe with curves
+        try:
+            save_complete_results, _ = _get_io_module()
+            from mdf_gce.io import load_complete_results
+            
+            # Save temp files
+            save_complete_results(
+                self.evaluation_results,
+                self.output_path,
+                prefix='_temp_',
+                save_curves=True,
+            )
+            
+            # Load as dataframe
+            df = load_complete_results(self.output_path, prefix='_temp_')
+            
+        except Exception as e:
+            print(f"Could not prepare data for plotting: {e}")
+            return
+        
+        # Add posterior weights
+        loss = df['fitness'].values
+        weights, _, _ = compute_posterior_weights(loss)
+        df['posterior_w'] = weights
+        
+        # Output directory for plots
+        plot_dir = os.path.join(self.output_path, 'plots')
+        if gen is not None:
+            plot_dir = os.path.join(plot_dir, f'gen{gen}')
+        os.makedirs(plot_dir, exist_ok=True)
+        
+        # Generate plots
+        try:
+            # MDF plot
+            if hasattr(self, 'feh') and hasattr(self, 'normalized_count'):
+                plot_mdf_posterior(
+                    df, self.feh, self.normalized_count,
+                    plot_dir, loss_col='fitness'
+                )
+            
+            # AMR plot
+            if self._has_obs_age_data():
+                obs = self.obs_age_data
+
+                # If obs_age_data is a DataFrame, map columns into arrays
+                if isinstance(obs, pd.DataFrame):
+                    # Adjust these column names if yours differ
+                    required = {"[Fe/H]", "Joyce_age"}
+                    if required.issubset(obs.columns):
+                        feh_obs = obs["[Fe/H]"].to_numpy()
+                        joyce_age = obs["Joyce_age"].to_numpy()
+                        bensby = obs["Bensby"].to_numpy() if "Bensby" in obs.columns else np.array([])
+                        plot_amr_posterior(
+                            df,
+                            joyce_age,
+                            bensby,
+                            feh_obs,
+                            plot_dir,
+                            loss_col="fitness",
+                        )
+
+                # If obs_age_data is a dict of arrays
+                elif isinstance(obs, dict):
+                    if "[Fe/H]" in obs and "Joyce_age" in obs:
+                        plot_amr_posterior(
+                            df,
+                            np.asarray(obs.get("Joyce_age", np.array([]))),
+                            np.asarray(obs.get("Bensby", np.array([]))),
+                            np.asarray(obs["[Fe/H]"]),
+                            plot_dir,
+                            loss_col="fitness",
+                        )
+
+            # Corner plot
+            plot_corner_posterior(df, plot_dir, loss_col='fitness')
+            
+            print(f"Plots saved to {plot_dir}")
+            
+        except Exception as e:
+            print(f"Error generating plots: {e}")
+            import traceback
+            traceback.print_exc()
     
     def export_ga_samples(self) -> None:
-        """Export all evaluated individuals as GA samples."""
+        """
+        Export all evaluated individuals as GA samples.
+        
+        Includes generation and evaluation columns matching old format.
+        Output: ga_population_samples.csv
+        """
         if not self.evaluation_results:
             return
         
@@ -1165,6 +1353,8 @@ class GalacticEvolutionGA:
                 continue
             ind = r['individual']
             row = {
+                'generation': r.get('generation', 0),
+                'evaluation': r.get('evaluation', len(rows)),
                 'comp_idx': int(ind[0]),
                 'imf_idx': int(ind[1]),
                 'sn1a_idx': int(ind[2]),
@@ -1190,11 +1380,26 @@ class GalacticEvolutionGA:
         print(f"Exported {len(df)} GA samples to {output_file}")
     
     def save_walker_history(self) -> None:
-        """Save walker history to NPZ file."""
+        """
+        Save walker history to NPZ file.
+        
+        Format matches the old walker_history.npz:
+        - walker_ids: array of walker ID numbers
+        - histories: array of lists of parameter vectors per walker
+        - mdf_data: dict mapping index to (feh_bins, counts)
+        - alpha_data: dict mapping index to alpha element tracks
+        - age_data: dict mapping index to (time, feh) tuples
+        """
         if not self.walker_history:
             return
         
-        # Also gather MDF/alpha data from evaluation results
+        # Build walker_ids and histories arrays in old format
+        walker_ids = np.array(sorted(self.walker_history.keys()))
+        histories = np.empty(len(walker_ids), dtype=object)
+        for i, wid in enumerate(walker_ids):
+            histories[i] = list(self.walker_history[wid])
+        
+        # Also gather MDF/alpha/age data from evaluation results
         mdf_data = {}
         alpha_data = {}
         age_data = {}
@@ -1210,12 +1415,234 @@ class GalacticEvolutionGA:
         output_file = os.path.join(self.output_path, 'walker_history.npz')
         np.savez(
             output_file,
-            walker_history=self.walker_history,
+            walker_ids=walker_ids,
+            histories=histories,
+            walker_history=self.walker_history,  # Also keep dict format for compatibility
             mdf_data=mdf_data,
             alpha_data=alpha_data,
             age_data=age_data,
         )
         print(f"Saved walker history to {output_file}")
+    
+    def save_posteriors(self, temperature: Optional[float] = None) -> str:
+        """
+        Save fitness-weighted posterior to posteriors.csv.
+        
+        Computes weights w ∝ exp(-loss/T) and saves with weight column.
+        
+        Parameters
+        ----------
+        temperature : float, optional
+            Temperature for weighting. If None, auto-tuned.
+            
+        Returns
+        -------
+        str
+            Path to saved file
+        """
+        if not self.evaluation_results:
+            print("No results for posteriors")
+            return ""
+        
+        # Build dataframe
+        rows = []
+        for r in self.evaluation_results:
+            if 'individual' not in r:
+                continue
+            ind = r['individual']
+            row = {
+                'sigma_2': ind[5],
+                't_1': ind[6],
+                't_2': ind[7],
+                'infall_1': ind[8],
+                'infall_2': ind[9],
+                'sfe': ind[10],
+                'delta_sfe': ind[11],
+                'imf_upper': ind[12],
+                'mgal': ind[13],
+                'nb': ind[14],
+                'fitness': r.get('fitness', float('inf')),
+            }
+            rows.append(row)
+        
+        df = pd.DataFrame(rows)
+        
+        # Compute weights
+        loss = df['fitness'].values
+        valid = np.isfinite(loss)
+        
+        if temperature is None:
+            # Auto-tune: use MAD
+            loss_valid = loss[valid]
+            median = np.median(loss_valid)
+            mad = np.median(np.abs(loss_valid - median))
+            temperature = max(mad, 0.01)
+        
+        # Compute weights
+        loss_shifted = loss - np.nanmin(loss)
+        log_weights = np.where(valid, -loss_shifted / temperature, -np.inf)
+        log_weights -= np.max(log_weights[valid])
+        weights = np.exp(log_weights)
+        weights /= np.sum(weights)
+        
+        df['weight'] = weights
+        
+        # Compute ESS
+        ess = 1.0 / (np.sum(weights**2) + 1e-12)
+        print(f"Posterior ESS = {ess:.1f} / {len(df)} ({100*ess/len(df):.1f}%)")
+        
+        output_file = os.path.join(self.output_path, 'posteriors.csv')
+        df.to_csv(output_file, index=False)
+        print(f"Saved fitness-weighted posterior to {output_file}")
+        return output_file
+    
+    def save_smc_demc_results(
+        self,
+        chains_df: pd.DataFrame,
+        ensemble: np.ndarray,
+        nsamples: int = 200000,
+        burn_frac: float = 0.20,
+    ) -> Dict[str, str]:
+        """
+        Save SMC-DEMC refinement results.
+        
+        Outputs:
+        - chains.csv: Full chain log
+        - smc_demc_samples.csv: Resampled posterior draws
+        - posterior_samples.csv: Legacy alias
+        
+        Parameters
+        ----------
+        chains_df : pd.DataFrame
+            Chain log from run_smc_demc
+        ensemble : np.ndarray
+            Final ensemble positions
+        nsamples : int
+            Number of posterior samples to generate
+        burn_frac : float
+            Fraction of stages to discard as burn-in
+            
+        Returns
+        -------
+        dict
+            Paths to saved files
+        """
+        paths = {}
+        
+        # Save chains
+        chains_path = os.path.join(self.output_path, 'chains.csv')
+        chains_df.to_csv(chains_path, index=False)
+        paths['chains'] = chains_path
+        print(f"Saved SMC-DEMC chains to {chains_path}")
+        
+        # Extract continuous parameters from chains
+        param_cols = [c for c in chains_df.columns if c.startswith('p')]
+        if not param_cols:
+            print("Warning: No parameter columns found in chains")
+            return paths
+        
+        # Remove burn-in
+        stages = chains_df['stage'].unique()
+        n_stages = len(stages)
+        burn_stages = int(n_stages * burn_frac)
+        post_burn = chains_df[chains_df['stage'] >= burn_stages]
+        
+        # Get parameter values
+        param_data = post_burn[param_cols].values
+        
+        # Resample with replacement
+        if len(param_data) > 0:
+            idx = np.random.choice(len(param_data), size=nsamples, replace=True)
+            samples = param_data[idx]
+            
+            # Build samples dataframe with proper column names
+            param_names = [
+                'sigma_2', 'tmax_1', 'tmax_2', 'infall_timescale_1', 'infall_timescale_2',
+                'sfe', 'delta_sfe', 'imf_upper_limits', 'mgal_values', 'nb_array'
+            ]
+            
+            # Map columns
+            col_names = param_names[:len(param_cols)]
+            samples_df = pd.DataFrame(samples, columns=col_names)
+            
+            # Save samples
+            samples_path = os.path.join(self.output_path, 'smc_demc_samples.csv')
+            samples_df.to_csv(samples_path, index=False)
+            paths['samples'] = samples_path
+            print(f"Saved {nsamples} posterior samples to {samples_path}")
+            
+            # Legacy alias
+            legacy_path = os.path.join(self.output_path, 'posterior_samples.csv')
+            samples_df.to_csv(legacy_path, index=False)
+            paths['legacy_samples'] = legacy_path
+            print(f"Saved legacy alias to {legacy_path}")
+        
+        return paths
+    
+    def save_history_with_loss(self) -> str:
+        """
+        Save walker history cross-matched with loss values.
+        
+        Output: history_with_loss.npz with arrays:
+        - walker_ids: Walker ID numbers
+        - histories: Parameter vectors per walker
+        - inds: Final parameter vectors aligned with losses
+        - losses: Loss values aligned with walker_ids
+        
+        Returns
+        -------
+        str
+            Path to saved file
+        """
+        if not self.walker_history or not self.evaluation_results:
+            print("No history or results for cross-matching")
+            return ""
+        
+        # Build lookup from individual to loss
+        def as_tuple(ind):
+            return tuple(round(float(x), 9) for x in ind)
+        
+        ind_to_loss = {}
+        for r in self.evaluation_results:
+            if 'individual' in r and 'fitness' in r:
+                key = as_tuple(r['individual'])
+                ind_to_loss[key] = r['fitness']
+        
+        # Build arrays
+        walker_ids = np.array(sorted(self.walker_history.keys()))
+        histories = np.empty(len(walker_ids), dtype=object)
+        inds = []
+        losses = []
+        
+        for i, wid in enumerate(walker_ids):
+            hist = list(self.walker_history[wid])
+            histories[i] = hist
+            
+            # Get final position
+            if hist:
+                final = hist[-1]
+                key = as_tuple(final)
+                loss = ind_to_loss.get(key, np.nan)
+            else:
+                final = [np.nan] * 15
+                loss = np.nan
+            
+            inds.append(final)
+            losses.append(loss)
+        
+        inds = np.array(inds, dtype=float)
+        losses = np.array(losses, dtype=float)
+        
+        output_file = os.path.join(self.output_path, 'history_with_loss.npz')
+        np.savez(
+            output_file,
+            walker_ids=walker_ids,
+            histories=histories,
+            inds=inds,
+            losses=losses,
+        )
+        print(f"Saved history with loss to {output_file}")
+        return output_file
 
 
 # =============================================================================

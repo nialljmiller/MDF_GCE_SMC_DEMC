@@ -5,6 +5,7 @@ Detailed documentation of all output files produced by the MDF_GCE_SMC_DEMC pipe
 ## Table of Contents
 
 - [Directory Structure](#directory-structure)
+- [Curve Linkage](#curve-linkage)
 - [CSV Files](#csv-files)
 - [NPZ Files](#npz-files)
 - [Plot Files](#plot-files)
@@ -18,35 +19,69 @@ A typical run produces the following structure:
 
 ```
 output_path/                          # Specified in bulge_pcard.txt
-├── simulation_results.csv            # Final merged results
-├── simulation_results_gen_10.csv     # Per-generation snapshots
-├── simulation_results_gen_20.csv
+├── final_results.csv                 # ← LINKED to curves (has model_id)
+├── final_curves.npz                  # ← LINKED to results (has model_ids)
+├── simulation_results.csv            # Sorted/deduplicated summary (NO curve link)
+├── gen10_results.csv                 # Per-generation (LINKED)
+├── gen10_curves.npz                  # Per-generation curves
 ├── ...
 ├── ga_population_samples.csv         # Full GA evaluation history
-├── walker_history.npz                # Walker trajectories
+├── walker_history.npz                # Walker trajectories + curve data
+├── history_with_loss.npz             # Cross-matched history with losses
+├── posteriors.csv                    # Fitness-weighted posterior
 ├── chains.csv                        # SMC-DEMC chain log
 ├── smc_demc_samples.csv             # Posterior samples
 ├── posterior_samples.csv            # Legacy alias for above
-├── posteriors.csv                   # Fitness-weighted posterior
-├── smc_demc_posterior_corner.png    # Corner plot
-├── mdf_fit.png                      # MDF comparison
-├── age_feh.png                      # Age-metallicity plot
-├── physics_*.png                    # Physics diagnostic plots
+├── plots/                           # Generated plots
+│   ├── MDF_posterior_2D.png
+│   ├── AMR_posterior.png
+│   ├── Four_Panel_Alpha_Posterior.png
+│   └── posterior_corner.png
 └── ga_checkpoint.pkl                # Checkpoint for resumption
+```
+
+---
+
+## Curve Linkage
+
+**CRITICAL**: For post-hoc plot regeneration, you need LINKED files:
+
+| Parameters File | Curves File | Linkage |
+|-----------------|-------------|---------|
+| `final_results.csv` | `final_curves.npz` | ✅ LINKED via model_id |
+| `gen{N}_results.csv` | `gen{N}_curves.npz` | ✅ LINKED via model_id |
+| `simulation_results.csv` | - | ❌ NO curves (sorted/deduplicated) |
+
+**How to use linked files:**
+
+```python
+from mdf_gce.io import load_complete_results
+
+# Load with curves automatically joined
+df = load_complete_results('output/', prefix='final_')
+
+# Each row now has curve data:
+row = df.iloc[0]
+mdf_x = row['mdf_x']       # [Fe/H] values for MDF
+mdf_y = row['mdf_y']       # Normalized counts
+age_x = row['age_x']       # Ages in years
+age_y = row['age_y']       # [Fe/H] vs time
+alpha = row['alpha_tracks'] # [(Mg_x, Mg_y), (Si_x, Si_y), (Ca_x, Ca_y), (Ti_x, Ti_y)]
 ```
 
 ---
 
 ## CSV Files
 
-### `simulation_results.csv`
+### `final_results.csv` (NEW - PRIMARY OUTPUT)
 
-**Description**: Master table of all evaluated models with their parameters and loss values.
+**Description**: Complete results with model_id for curve linkage.
 
 **Columns**:
 
 | Column | Type | Description |
 |--------|------|-------------|
+| `model_id` | int | **Links to curves in final_curves.npz** |
 | `comp_idx` | int | Composition array index (0-5) |
 | `imf_idx` | int | IMF array index |
 | `sn1a_idx` | int | SNe Ia yield table index |
@@ -62,22 +97,24 @@ output_path/                          # Specified in bulge_pcard.txt
 | `imf_upper` | float | IMF upper mass limit [M☉] |
 | `mgal` | float | Initial gas mass [M☉] |
 | `nb` | float | SNe Ia per solar mass [M☉⁻¹] |
-| `loss` | float | Total loss value (lower is better) |
-| `mdf_loss` | float | MDF component of loss (if tracked) |
-| `age_loss` | float | Age-[Fe/H] component (if tracked) |
+| `fitness` | float | Loss value (lower is better) |
+| `total_mass` | float | Total stellar mass formed |
 
 **Notes**:
-- Sorted by `loss` in ascending order (best models first)
-- May contain duplicate parameter sets if re-evaluated
-- Use `drop_duplicates()` for unique models
+- **Use this file for post-hoc plotting** - it links to curves
+- Not sorted or deduplicated - preserves original evaluation order
+- model_id matches model_ids array in final_curves.npz
 
-**Example Usage**:
-```python
-import pandas as pd
-df = pd.read_csv('SMC_DEMC/simulation_results.csv')
-best = df.iloc[0]  # Best model
-top_10pct = df.head(int(len(df) * 0.1))  # Top 10%
-```
+### `simulation_results.csv`
+
+**Description**: Sorted, deduplicated summary for quick inspection.
+
+**Columns**: Same as final_results.csv but WITHOUT model_id.
+
+**Notes**:
+- Sorted by `fitness` in ascending order (best models first)
+- Deduplicated - only one entry per unique parameter set
+- **Cannot be linked to curves** - use final_results.csv instead
 
 ---
 

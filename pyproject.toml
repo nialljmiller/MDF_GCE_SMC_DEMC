@@ -57,11 +57,14 @@ docs = [
     "sphinx-rtd-theme>=1.0",
     "myst-parser>=0.18",
 ]
+hdf5 = [
+    "h5py>=3.0",
+]
 
 [project.scripts]
 mdf-ga = "mdf_gce.scripts.run_ga:main"
 mdf-analyze = "mdf_gce.scripts.analyze:main"
-mdf-plot = "mdf_gce.scripts.plot:main"
+mdf-plot = "mdf_gce.plotting.regenerate_plots:main"
 
 [project.urls]
 Homepage = "https://github.com/user/MDF_GCE_SMC_DEMC"

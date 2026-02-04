@@ -7,6 +7,7 @@ Main components:
 - core: GA engine, SMC-DEMC sampler, loss functions, constraints
 - analysis: Posterior analysis, uncertainty quantification
 - plotting: Visualization tools
+- io: Results saving and loading
 """
 
 __version__ = "1.0.0"
@@ -41,3 +42,19 @@ def run_ga_from_config(*args, **kwargs):
     """Run GA from configuration dictionary."""
     from .core.ga import run_ga_from_config as _run
     return _run(*args, **kwargs)
+
+# I/O functions (lazy import)
+def ResultsLoader(*args, **kwargs):
+    """Create a ResultsLoader instance for loading GA results."""
+    from .io import ResultsLoader as _RL
+    return _RL(*args, **kwargs)
+
+def load_complete_results(*args, **kwargs):
+    """Load complete GA results including curves."""
+    from .io import load_complete_results as _load
+    return _load(*args, **kwargs)
+
+def save_complete_results(*args, **kwargs):
+    """Save complete GA results including curves."""
+    from .io import save_complete_results as _save
+    return _save(*args, **kwargs)
