@@ -902,8 +902,13 @@ class GalacticEvolutionGA:
     ) -> None:
         """Internal GA loop."""
         
-        if not hasattr(self, 'walker_history') or start_gen == 0:
-            self.walker_history = {i: [] for i in range(len(population))}
+        if not hasattr(self, 'walker_history'):
+            self.walker_history = {}
+
+        for i in range(len(population)):
+            if i not in self.walker_history:
+                self.walker_history[i] = []
+
         
         # Elitism
         elitism_k = max(1, len(population) // 16)
