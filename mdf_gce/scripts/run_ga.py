@@ -259,8 +259,19 @@ def main():
         cp_data = checkpoint_manager.load()
         if cp_data:
             start_gen = cp_data.get('generation', 0) + 1
+            
+            # Restore historical data
+            ga_state = cp_data.get('ga_state', {})
+            ga.sample_records = ga_state.get('sample_records', [])
+            ga.mdf_data = ga_state.get('mdf_data', [])
+            ga.alpha_data = ga_state.get('alpha_data', [])
+            ga.age_data = ga_state.get('age_data', [])
+            ga.walker_history = ga_state.get('walker_history', {})
+            ga.results = ga_state.get('results', [])
+            ga.labels = ga_state.get('labels', [])
+            # ... any other accumulated state
+            
             print(f"Resuming from generation {start_gen}")
-    
     # Copy pcard to output
     import shutil
     pcard_dest = os.path.join(output_path, 'bulge_pcard.txt')
