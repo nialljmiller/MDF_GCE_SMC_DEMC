@@ -139,6 +139,7 @@ def main():
     
     # Validate
     popsize = config.get('popsize', 96)
+
     if popsize < 0:
         popsize = int(cpu_count() * (popsize * -1))
 

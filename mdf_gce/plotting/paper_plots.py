@@ -219,21 +219,39 @@ def extract_mdf_xy(row: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def extract_age_feh(row: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
-    """Extract age-metallicity relation from a results row."""
-    for x_col in ['age_x', 'age_array', 'ages']:
+    """
+    Extract age-metallicity relation from a results row.
+    
+    Converts simulation time (years from universe start) to lookback age (Gyr):
+    age_gyr = (t_final - t) / 1e9
+    
+    This gives: oldest stars (formed early) have largest age values.
+    
+    Returns
+    -------
+    age_gyr, feh : arrays
+    """
+    # Find age/time column
+    x = None
+    for x_col in ['age_x', 'age_array', 'ages', 'time']:
         if x_col in row.index:
             x = row[x_col]
             break
-    else:
+    
+    if x is None:
         return np.array([]), np.array([])
     
-    for y_col in ['age_y', 'feh_array', 'metallicity']:
+    # Find metallicity column  
+    y = None
+    for y_col in ['age_y', 'feh_array', 'metallicity', '[Fe/H]']:
         if y_col in row.index:
             y = row[y_col]
             break
-    else:
+    
+    if y is None:
         return np.array([]), np.array([])
     
+    # Parse string representations if needed
     if isinstance(x, str):
         try:
             import ast
@@ -250,10 +268,20 @@ def extract_age_feh(row: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     
-    # Convert to Gyr if in years
-    if len(x) > 0 and np.nanmax(x) > 100:
-        # Assume in years, convert to lookback time in Gyr
-        x = (x[-1] - x) / 1e9
+    if len(x) == 0 or len(y) == 0:
+        return np.array([]), np.array([])
+    
+    # Ensure same length
+    min_len = min(len(x), len(y))
+    x = x[:min_len]
+    y = y[:min_len]
+    
+    # Convert simulation time (years from Big Bang) to stellar age (Gyr)
+    # If max value > 1e6, assume it's in years (typical ~14e9 years)
+    if np.nanmax(np.abs(x)) > 1e6:
+        t_final = x[-1] if len(x) > 0 else 0
+        # age_gyr = how long ago this timestep occurred
+        x = (t_final - x) / 1e9
     
     return x, y
 

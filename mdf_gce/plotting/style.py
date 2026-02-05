@@ -40,6 +40,12 @@ COLOR_OBSERVATION = "#2ca02c"     # green
 COLOR_UNCERTAINTY = "#1f77b4"     # blue with alpha
 COLOR_SECONDARY = "#ff7f0e"       # orange
 
+# Aliases for convenience
+COLOR_BEST = COLOR_BEST_MODEL
+COLOR_OBS = COLOR_OBSERVATION
+COLOR_JOYCE = 'red'               # Joyce+23 data
+COLOR_BENSBY = 'blue'             # Bensby+17 data
+
 # Alpha values
 ALPHA_BAND = 0.25
 ALPHA_SCATTER = 0.6

@@ -302,32 +302,6 @@ class GalacticEvolutionGA:
         
         # Print configuration
         self._print_config()
-
-
-
-    def _has_obs_age_data(self) -> bool:
-        """True if obs_age_data exists and contains usable data."""
-        if not hasattr(self, "obs_age_data"):
-            return False
-
-        obs = self.obs_age_data
-        if obs is None:
-            return False
-
-        # If it's a pandas DataFrame
-        if isinstance(obs, pd.DataFrame):
-            return not obs.empty
-
-        # If it's a dict-like container
-        if isinstance(obs, dict):
-            return len(obs) > 0
-
-        # Fallback: do not assume truthiness for unknown types
-        return True
-
-
-
-
     
     def _compute_bounds(self) -> None:
         """Compute parameter bounds for continuous parameters."""
@@ -1231,7 +1205,13 @@ class GalacticEvolutionGA:
     
     def generate_plots(self, gen: Optional[int] = None) -> None:
         """
-        Generate paper-quality plots from current results.
+        Generate plots from current results using live data in memory.
+        
+        Includes:
+        - MDF (all models + best highlighted)
+        - AMR (age-metallicity relation)
+        - Four-panel alpha elements
+        - Corner plot (posterior)
         
         Parameters
         ----------
@@ -1242,98 +1222,70 @@ class GalacticEvolutionGA:
             print("No results to plot")
             return
         
+        # Runtime plots (MDF, AMR, Alpha)
         try:
-            from mdf_gce.plotting.paper_plots import (
-                plot_mdf_posterior,
-                plot_amr_posterior,
-                plot_alpha_posterior,
-                plot_corner_posterior,
-                compute_posterior_weights,
+            from mdf_gce.plotting.runtime_plots import generate_runtime_plots
+            
+            paths = generate_runtime_plots(
+                self,
+                gen=gen,
+                plot_mdf=True,
+                plot_amr=True,
+                plot_alpha=True,
             )
+            
+            if paths:
+                print(f"Generated {len(paths)} runtime plots")
+            
         except ImportError as e:
-            print(f"Could not import plotting module: {e}")
-            return
-        
-        # Build dataframe with curves
-        try:
-            save_complete_results, _ = _get_io_module()
-            from mdf_gce.io import load_complete_results
-            
-            # Save temp files
-            save_complete_results(
-                self.evaluation_results,
-                self.output_path,
-                prefix='_temp_',
-                save_curves=True,
-            )
-            
-            # Load as dataframe
-            df = load_complete_results(self.output_path, prefix='_temp_')
-            
+            print(f"Could not import runtime_plots: {e}")
         except Exception as e:
-            print(f"Could not prepare data for plotting: {e}")
-            return
+            print(f"Error generating runtime plots: {e}")
+            import traceback
+            traceback.print_exc()
         
-        # Add posterior weights
-        loss = df['fitness'].values
-        weights, _, _ = compute_posterior_weights(loss)
-        df['posterior_w'] = weights
-        
-        # Output directory for plots
-        plot_dir = os.path.join(self.output_path, 'plots')
-        if gen is not None:
-            plot_dir = os.path.join(plot_dir, f'gen{gen}')
-        os.makedirs(plot_dir, exist_ok=True)
-        
-        # Generate plots
+        # Corner plot (needs DataFrame with parameters)
         try:
-            # MDF plot
-            if hasattr(self, 'feh') and hasattr(self, 'normalized_count'):
-                plot_mdf_posterior(
-                    df, self.feh, self.normalized_count,
-                    plot_dir, loss_col='fitness'
-                )
+            from mdf_gce.plotting.paper_plots import plot_corner_posterior
             
-            # AMR plot
-            if self._has_obs_age_data():
-                obs = self.obs_age_data
-
-                # If obs_age_data is a DataFrame, map columns into arrays
-                if isinstance(obs, pd.DataFrame):
-                    # Adjust these column names if yours differ
-                    required = {"[Fe/H]", "Joyce_age"}
-                    if required.issubset(obs.columns):
-                        feh_obs = obs["[Fe/H]"].to_numpy()
-                        joyce_age = obs["Joyce_age"].to_numpy()
-                        bensby = obs["Bensby"].to_numpy() if "Bensby" in obs.columns else np.array([])
-                        plot_amr_posterior(
-                            df,
-                            joyce_age,
-                            bensby,
-                            feh_obs,
-                            plot_dir,
-                            loss_col="fitness",
-                        )
-
-                # If obs_age_data is a dict of arrays
-                elif isinstance(obs, dict):
-                    if "[Fe/H]" in obs and "Joyce_age" in obs:
-                        plot_amr_posterior(
-                            df,
-                            np.asarray(obs.get("Joyce_age", np.array([]))),
-                            np.asarray(obs.get("Bensby", np.array([]))),
-                            np.asarray(obs["[Fe/H]"]),
-                            plot_dir,
-                            loss_col="fitness",
-                        )
-
-            # Corner plot
-            plot_corner_posterior(df, plot_dir, loss_col='fitness')
+            # Build parameter DataFrame for corner plot
+            rows = []
+            for r in self.evaluation_results:
+                if 'individual' not in r:
+                    continue
+                ind = r['individual']
+                rows.append({
+                    'sigma_2': ind[5],
+                    't_1': ind[6],
+                    't_2': ind[7],
+                    'infall_1': ind[8],
+                    'infall_2': ind[9],
+                    'sfe': ind[10],
+                    'delta_sfe': ind[11],
+                    'imf_upper': ind[12],
+                    'mgal': ind[13],
+                    'nb': ind[14],
+                    'fitness': r.get('fitness', float('inf')),
+                })
             
-            print(f"Plots saved to {plot_dir}")
-            
+            if rows:
+                import pandas as pd
+                df = pd.DataFrame(rows)
+                
+                plot_dir = os.path.join(self.output_path, 'plots')
+                if gen is not None:
+                    plot_dir = os.path.join(plot_dir, f'gen{gen}')
+                os.makedirs(plot_dir, exist_ok=True)
+                
+                plot_corner_posterior(df, plot_dir, loss_col='fitness')
+                print(f"Generated corner plot")
+                
+        except ImportError as e:
+            print(f"Could not import corner plotting: {e}")
         except Exception as e:
-            print(f"Error generating plots: {e}")
+            print(f"Error generating corner plot: {e}")
+            import traceback
+            traceback.print_exc()
             import traceback
             traceback.print_exc()
     
