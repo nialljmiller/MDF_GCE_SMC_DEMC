@@ -229,3 +229,11 @@ N. Miller
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
+
+## Self-contained code archive
+
+This repository is intended as a self-contained archival version of the code used for the accepted ApJ manuscript.
+
+The main analysis and optimization framework developed for this work is contained in `mdf_gce/`. The repository also includes the OMEGA+/NuPyCEE/JINAPyCEE code and yield-table files required to run the Galactic Chemical Evolution calculations without requiring users to reconstruct the working environment from external repositories.
+
+The included NuPyCEE/JINAPyCEE components are vendored here for reproducibility of the paper calculations. Their original licences and acknowledgements are preserved in the relevant directories.

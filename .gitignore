@@ -47,3 +47,19 @@ analysis/
 
 # --- BUT: keep all files under data/ tracked ---
 !data/**
+
+# Python/build/cache junk
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# OS junk
+.DS_Store
+__MACOSX/
+._*
